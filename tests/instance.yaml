@@ -1,0 +1,56 @@
+# Instance spec of the boot test (format: docs/spec.md of the keel
+# repository). IPv6 first, from the bridge; no certificate request; the two
+# passwords are files the test writes into the rootfs before booting.
+#
+# This is the throwaway container the gate boots, not the forum: the
+# production spec is keel/instance.example.yaml, which names
+# forum.keellinux.org and the public services VM as the trusted proxy. The
+# values here are what a container assembled from the nodebb layer must look
+# like once its first boot has finished, so `keel diff` finding no drift is
+# the verdict. Two of them are not what a reader would guess:
+#
+#   ipv6.method: dhcp   ifupdown has no SLAAC method, so `inet6 dhcp` is
+#                       what the hook writes for `auto` as well and what
+#                       inspect reads back (docs/spec.md, network).
+#   updates: force      the core layer ships /etc/cron-apt/config with
+#                       forced security updates; declaring anything else
+#                       would be drift the appliance never resolves.
+version: 1
+
+instance:
+  hostname: forum
+  fqdn: forum.example.org
+
+network:
+  managed_by: host
+  interfaces:
+    eth0:
+      ipv4:
+        method: dhcp
+      ipv6:
+        method: dhcp
+
+tls:
+  acme:
+    enabled: false
+
+secrets:
+  root_password:
+    file: /etc/keel/secrets/root_password
+  app_password:
+    file: /etc/keel/secrets/app_password
+
+app:
+  email: admin@example.org
+  domain: forum.example.org
+  options:
+    admin_user: admin
+
+hub:
+  api_key: skip
+
+security:
+  alerts: skip
+  updates: force
+
+first_login_wizard: false

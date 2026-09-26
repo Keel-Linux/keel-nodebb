@@ -1,184 +1,133 @@
 #!/bin/bash
-# Appliance test (docs/org-plan.md section 1): the layer built by bt-layer is
-# verified, pulled and assembled into an LXC rootfs, adapted for a container
-# the way bt-container does, booted with a macvlan interface that gets a
-# global IPv6 address by SLAAC, first booted headless from an instance spec,
-# and checked over IPv6: nginx answers on port 80 and the forum on 443, and
-# keel diff finds no drift. Runs as root on the build host.
+# Boot test of this appliance (org-plan section 1), modelled on the one in
+# keel-core: assemble the published layer chain into an LXC rootfs, boot it
+# headless from tests/instance.yaml, wait for the first boot to finish, check
+# that the forum answers over IPv6, and check that keel diff reports no drift
+# between the spec and the machine.
 #
-#   tests/boot-test.sh APPLIANCE [--keep]
-#
-# Environment (defaults in brackets):
-#   LAYERS_DIR   where bt-layer wrote the layers [/mnt/builds/layers]
-#   CACHE_DIR    keel pull cache [/var/cache/keel/layers]
-#   CONTAINER    LXC container name [forum]
-#   LXC_LINK     host interface for macvlan [eth0]
-#   BT           buildtasks checkout with patches/ [/turnkey/buildtasks-keel]
-#   SPEC         instance spec to copy into the rootfs [keel/instance.example.yaml]
-#   BOOT_TIMEOUT seconds to wait for the first boot [900]
+# Called by the reusable workflow test-appliance.yml after keel pull and
+# keel verify; runnable by hand as root on any host with LXC, see
+# tests/README.md. It builds nothing: the layers come from the mirror or from
+# a directory bt-layer wrote, so the test needs no fab, deck or buildtasks.
+# The logic lives in tests/lib/boot-test-lib.sh and is unit tested; this file
+# is the thin main that touches the system.
 set -euo pipefail
 
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APPLIANCE="${1:?usage: boot-test.sh APPLIANCE [--keep]}"
-KEEP="${2:-}"
-LAYERS_DIR="${LAYERS_DIR:-/mnt/builds/layers}"
-CACHE_DIR="${CACHE_DIR:-/var/cache/keel/layers}"
-CONTAINER="${CONTAINER:-forum}"
-LXC_LINK="${LXC_LINK:-eth0}"
-BT="${BT:-/turnkey/buildtasks-keel}"
-SPEC="${SPEC:-$here/keel/instance.example.yaml}"
-BOOT_TIMEOUT="${BOOT_TIMEOUT:-900}"
-LXC_DIR=/var/lib/lxc/$CONTAINER
-ROOTFS=$LXC_DIR/rootfs
-export TERM=dumb
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/boot-test-lib.sh
+source "$here/lib/boot-test-lib.sh"
 
-log() { printf '%s boot-test: %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
-fatal() { log "FATAL: $*"; exit 1; }
-timed() {
-    local label=$1 started
-    shift
-    started=$(date +%s)
-    "$@"
-    log "$label: $(( $(date +%s) - started )) s"
-}
-
-[[ $(id -u) -eq 0 ]] || fatal "run as root"
-for tool in keel lxc-start lxc-attach tklpatch-apply fab-chroot curl; do
-    command -v "$tool" >/dev/null || fatal "$tool not found"
+bt_parse_args "$@" || { rc=$?; [ "$rc" -eq 2 ] && exit 0; exit 1; }
+BT_SPEC=${BT_SPEC:-$here/instance.yaml}
+if [ "$(id -u)" -ne 0 ]; then
+    echo "boot-test: must run as root (keel assemble, lxc-start)" >&2
+    exit 1
+fi
+for tool in keel lxc-start lxc-info lxc-attach lxc-stop curl; do
+    command -v "$tool" >/dev/null || { echo "boot-test: $tool not found" >&2; exit 1; }
 done
 
-verify_layers() {
-    local code=0
-    keel verify --layers-dir "$LAYERS_DIR" --non-interactive || code=$?
-    # 8: hash files present but no trusted key yet; 9: packages half not implemented
-    [[ $code -eq 0 || $code -eq 8 || $code -eq 9 ]] || fatal "keel verify exited $code"
-}
+container_dir=$BT_LXC_PATH/$BT_NAME
+log() { printf '%s boot-test: %s\n' "$(date -u +%H:%M:%S)" "$*"; }
+lxc() { "lxc-$1" -P "$BT_LXC_PATH" -n "$BT_NAME" "${@:2}"; }
 
-assemble() {
-    if [[ -e $LXC_DIR ]]; then
-        lxc-stop -n "$CONTAINER" -k 2>/dev/null || true
-        rm -rf "$LXC_DIR"
+cleanup() {
+    local rc=$?
+    if [ "$rc" -ne 0 ] && [ -r "$BT_ROOTFS/var/log/inithooks.log" ]; then
+        log "last lines of the container's inithooks log:"
+        tail -n 40 "$BT_ROOTFS/var/log/inithooks.log"
     fi
-    mkdir -p "$ROOTFS" "$CACHE_DIR"
-    keel pull "$APPLIANCE" --source "$LAYERS_DIR" --cache-dir "$CACHE_DIR" --non-interactive
-    keel assemble "$APPLIANCE" --rootfs "$ROOTFS" --cache-dir "$CACHE_DIR" --non-interactive
-    du -sh "$ROOTFS" >&2
-}
-
-# what bt-container does to an ISO rootfs, applied to the assembled tree
-adapt_container() {
-    "$BT/bin/purge-pkgs" "$ROOTFS"
-    tklpatch-apply "$ROOTFS" "$BT/patches/headless"
-    tklpatch-apply "$ROOTFS" "$BT/patches/container"
-    "$BT/bin/aptconf-tag" "$ROOTFS" proxmox
-    "$BT/bin/build-tag" "$ROOTFS" proxmox
-    # the container patch disables 30rootpass (Proxmox sets the password);
-    # here the spec's root_password is what sets it
-    chmod +x "$ROOTFS/usr/lib/inithooks/firstboot.d/30rootpass"
-    fab-chroot "$ROOTFS" 'rm -rf /var/log/dpkg.log /var/log/apt/* /var/lib/apt/lists/* /var/cache/apt/archives/*.deb /var/cache/apt/*.bin'
-}
-
-write_spec_and_secrets() {
-    install -d -m 0755 "$ROOTFS/etc/keel"
-    install -d -m 0700 "$ROOTFS/etc/keel/secrets"
-    install -m 0644 "$SPEC" "$ROOTFS/etc/keel/instance.yaml"
-    local name
-    for name in root_password app_password; do
-        if [[ ! -s "$ROOTFS/etc/keel/secrets/$name" ]]; then
-            openssl rand -base64 18 > "$ROOTFS/etc/keel/secrets/$name"
-            chmod 0600 "$ROOTFS/etc/keel/secrets/$name"
-        fi
-    done
-}
-
-write_lxc_config() {
-    local hwaddr
-    hwaddr="02:bc:24:11:00:$(printf '%02x' $(( $(cksum <<< "$CONTAINER" | cut -d' ' -f1) % 256 )))"
-    cat > "$LXC_DIR/config" <<CONF
-lxc.include = /usr/share/lxc/config/common.conf
-lxc.include = /usr/share/lxc/config/nesting.conf
-lxc.arch = linux64
-lxc.uts.name = $CONTAINER
-lxc.rootfs.path = dir:$ROOTFS
-
-lxc.net.0.type = macvlan
-lxc.net.0.macvlan.mode = bridge
-lxc.net.0.link = $LXC_LINK
-lxc.net.0.name = eth0
-lxc.net.0.flags = up
-lxc.net.0.hwaddr = $hwaddr
-
-lxc.apparmor.profile = generated
-lxc.apparmor.allow_nesting = 1
-lxc.tty.max = 4
-lxc.start.auto = 1
-lxc.start.delay = 5
-CONF
-    chmod 640 "$LXC_DIR/config"
-}
-
-# the global, non temporary, non tentative IPv6 address of eth0 in the container
-container_ip6() {
-    lxc-attach -n "$CONTAINER" -- ip -6 -o addr show dev eth0 scope global 2>/dev/null \
-        | grep -v -e temporary -e tentative | awk '{print $4}' | cut -d/ -f1 | head -n 1
-}
-
-start_container() {
-    modprobe ip6table_nat 2>/dev/null || true
-    lxc-start -n "$CONTAINER"
-    local n
-    for (( n = 0; n < 90; n++ )); do
-        IP6=$(container_ip6)
-        [[ -z "$IP6" ]] || return 0
-        sleep 1
-    done
-    fatal "no global IPv6 address on $CONTAINER after 90 s"
-}
-
-first_boot() {
-    lxc-attach -n "$CONTAINER" -- keel spec apply --spec /etc/keel/instance.yaml --non-interactive
-    timeout "$BOOT_TIMEOUT" lxc-attach -n "$CONTAINER" -- /usr/lib/inithooks/run
-    lxc-attach -n "$CONTAINER" -- grep -c 'successfully completed' /var/log/inithooks.log >&2
-    if lxc-attach -n "$CONTAINER" -- grep -E 'ERR|failed' /var/log/inithooks.log >&2; then
-        log "some hooks reported an error, see the log lines above"
+    if [ "$BT_KEEP" -eq 1 ]; then
+        log "keeping $BT_NAME under $BT_LXC_PATH (--keep); lxc-attach -P $BT_LXC_PATH -n $BT_NAME"
+        return
     fi
+    lxc stop -k >/dev/null 2>&1 || true
+    rm -rf "$container_dir"
 }
+trap cleanup EXIT
 
-http_checks() {
-    local code title
-    code=$(curl -6 -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://[$IP6]/")
-    log "http://[$IP6]/ -> $code"
-    [[ "$code" == 307* || "$code" == 200* ]] || fatal "nginx did not answer on port 80"
-    for (( n = 0; n < 60; n++ )); do
-        code=$(curl -6 -k -s -o /tmp/boot-test-index.html -w '%{http_code}' "https://[$IP6]/" || true)
-        [[ "$code" == 200 ]] && break
-        sleep 2
-    done
-    [[ "$code" == 200 ]] || fatal "https://[$IP6]/ answered $code, not 200"
-    title=$(grep -o '<title>[^<]*</title>' /tmp/boot-test-index.html | head -n 1)
-    log "https://[$IP6]/ -> $code $title"
-    [[ -n "$title" ]] || fatal "no <title> in the forum page"
+# 1. Assemble the chain from the layers the build host published.
+log "assembling $BT_APPLIANCE from $BT_LAYERS_DIR into $BT_ROOTFS"
+lxc stop -k >/dev/null 2>&1 || true
+rm -rf "$container_dir"
+mkdir -p "$BT_ROOTFS"
+keel pull "$BT_APPLIANCE" --source "$BT_LAYERS_DIR" --cache-dir "$BT_CACHE_DIR" --non-interactive
+keel assemble "$BT_APPLIANCE" --rootfs "$BT_ROOTFS" --cache-dir "$BT_CACHE_DIR" --non-interactive
+
+# 2. The container marker, the instance spec, the secrets it references and
+#    the conf the first boot hooks read. The marker under
+#    /var/lib/turnkey-info is what bt-container writes and what inspect reads
+#    to call the machine a container (managed_by: host); the conf is what
+#    makes the first boot headless, and without it 30rootpass and 40nodebb
+#    wait on a dialog forever.
+log "installing the spec, the secrets and the conf into $BT_ROOTFS"
+install -D -m 0644 /dev/null "$BT_ROOTFS/var/lib/turnkey-info/inithooks.service/lxc"
+install -d -m 0700 "$BT_ROOTFS/etc/keel/secrets"
+for target in $(bt_secret_targets "$BT_ROOTFS"); do
+    bt_random_password > "$target"
+    chmod 0600 "$target"
+done
+for target in $(bt_spec_targets "$BT_ROOTFS"); do
+    install -D -m 0600 "$BT_SPEC" "$target"
+done
+bt_spec_in_rootfs "$BT_SPEC" "$BT_ROOTFS" > "$container_dir/instance-host.yaml"
+keel spec apply --spec "$container_dir/instance-host.yaml" \
+    --conf "$BT_ROOTFS/etc/inithooks.conf" --non-interactive
+
+# 3. Boot.
+bt_lxc_config "$BT_NAME" "$BT_ROOTFS" "$BT_BRIDGE" > "$container_dir/config"
+log "starting $BT_NAME on bridge $BT_BRIDGE"
+lxc start -d
+
+# 4. A global IPv6 address from the bridge.
+bt_wait_for "$BT_TIMEOUT" "$BT_INTERVAL" "a global IPv6 address on $BT_NAME" \
+    bt_container_ipv6 "$BT_NAME" "$BT_LXC_PATH" > /dev/null
+addr=$(bt_container_ipv6 "$BT_NAME" "$BT_LXC_PATH")
+log "container address $addr"
+
+# 5. First boot finished: 98finalize has cleared RUN_FIRSTBOOT and the
+#    machine answers, on the console (confconsole's usage screen) or on SSH.
+#    The answer alone is not enough: sshd is up long before the hooks are
+#    done, so the flag is what says the first boot ended.
+usage_screen() {
+    lxc attach -- pgrep -f confconsole > /dev/null 2>&1
 }
-
-diff_check() {
-    local code=0
-    lxc-attach -n "$CONTAINER" -- keel diff --spec /etc/keel/instance.yaml || code=$?
-    log "keel diff exited $code"
-    [[ $code -eq 0 || $code -eq 13 ]] || fatal "keel diff found drift"
+ssh_answers() {
+    local banner
+    banner=$(timeout 5 bash -c 'exec 3<>"/dev/tcp/$0/$1" && read -r -t 5 line <&3 && printf "%s" "$line"' \
+        "$addr" "$BT_SSH_PORT" 2>/dev/null) || return 1
+    bt_is_ssh_banner "$banner"
 }
+first_boot_done() {
+    bt_firstboot_done_in "$BT_ROOTFS/etc/default/inithooks" || return 1
+    usage_screen || ssh_answers
+}
+bt_wait_for "$BT_TIMEOUT" "$BT_INTERVAL" "the first boot of $BT_NAME to finish" \
+    first_boot_done
+log "first boot finished; ssh root@$addr"
 
-timed verify verify_layers
-timed assemble assemble
-timed adapt adapt_container
-write_spec_and_secrets
-write_lxc_config
-timed start start_container
-log "container $CONTAINER has IPv6 $IP6"
-timed first-boot first_boot
-timed http http_checks
-timed diff diff_check
-if [[ "$KEEP" != "--keep" ]]; then
-    lxc-stop -n "$CONTAINER"
-fi
-log "PASS $APPLIANCE at $IP6"
-echo "$IP6"
+# 6. The forum answers over IPv6: nginx redirects port 80 to https, and the
+#    NodeBB page comes back on 443 with a title. NodeBB takes a moment after
+#    its unit is started, so the page is polled.
+redirect=$(curl -6 -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://[$addr]/")
+log "http://[$addr]/ answered $redirect"
+# shellcheck disable=SC2086  # two fields, split on purpose
+bt_redirects_to_https $redirect \
+    || { echo "boot-test: nginx did not redirect port 80 to https" >&2; exit 1; }
+
+page=$container_dir/index.html
+code=""
+forum_answers() {
+    code=$(curl -6 -k -s -o "$page" -w '%{http_code}' "https://[$addr]/" || true)
+    [ "$code" = 200 ]
+}
+bt_wait_for "$BT_TIMEOUT" "$BT_INTERVAL" "the forum on https://[$addr]/" forum_answers
+bt_http_verdict "$code" "$(bt_page_title "$page")"
+
+# 7. No drift between the declared spec and the booted root.
+set +e
+keel diff --root "$BT_ROOTFS" --spec "$BT_SPEC"
+code=$?
+set -e
+bt_diff_verdict "$code"
+log "$BT_APPLIANCE boot test passed"
