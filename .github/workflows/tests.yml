@@ -1,0 +1,25 @@
+# Tests of the keel-nodebb appliance recipe (decision 0006 point 4):
+#   shell: the first boot library under bats and kcov, threshold committed here
+#   tests: build the layer, assemble it, boot it in LXC and check it over IPv6
+#          on the self-hosted runner (organization workflow test-appliance.yml)
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    uses: keel-linux/.github/.github/workflows/test-shell.yml@main
+    with:
+      threshold: 95
+      coverage-script: tests/coverage.sh
+  tests:
+    uses: keel-linux/.github/.github/workflows/test-appliance.yml@main
+    with:
+      appliance: nodebb
+      parent: nodejs-nginx
