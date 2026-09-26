@@ -1,0 +1,14 @@
+#include <turnkey/base>
+#include <turnkey/nodejs-nginx>
+
+/* runtime, all from the Debian archive */
+nodejs                  /* 20.19 in trixie; NodeBB 4.11 declares node >= 20 */
+npm
+redis-server            /* the NodeBB database, bound to ::1 and 127.0.0.1 */
+redis-tools
+curl
+
+/* project packages, resolved from the build host's staging repository */
+inithooks
+confconsole
+keel

@@ -1,0 +1,83 @@
+#!/bin/bash -ex
+# Install NodeBB under /var/www/nodebb from the pinned release tarball,
+# fetch its dependencies, run a build time setup against a scratch Redis so
+# the static assets are compiled in the image, then remove every trace of
+# that setup: the first boot hook (firstboot.d/40nodebb) runs the real
+# setup from the instance spec.
+
+NODEBB_VERSION=4.11.2
+NODEBB_SHA256=32204fffbed6cb87fefe9bed88d759d00787f645e3473b801758efa76d822b0e
+NODEBB_URL="https://github.com/NodeBB/NodeBB/archive/refs/tags/v${NODEBB_VERSION}.tar.gz"
+NODEBB_USER=nodebb
+NODEBB_DIR=/var/www/nodebb
+REDIS_CONF=/etc/redis/redis.conf
+
+# npm reaches the registry through the build proxy when fab sets one, and
+# always through the system trust store.
+export npm_config_cafile=/etc/ssl/certs/ca-certificates.crt
+if [[ -n "$FAB_HTTP_PROXY" ]]; then
+    export http_proxy="$FAB_HTTP_PROXY" https_proxy="$FAB_HTTP_PROXY"
+fi
+
+# service user
+adduser --system --group --home "$NODEBB_DIR" --no-create-home \
+    --shell /usr/sbin/nologin "$NODEBB_USER"
+
+# release tarball, verified against the pinned digest
+tmp=$(mktemp -d)
+curl -fsSL -o "$tmp/nodebb.tar.gz" "$NODEBB_URL"
+echo "$NODEBB_SHA256  $tmp/nodebb.tar.gz" | sha256sum --check --strict
+mkdir -p "$NODEBB_DIR"
+tar -C "$NODEBB_DIR" --strip-components=1 -xzf "$tmp/nodebb.tar.gz"
+rm -rf "$tmp"
+grep -q "\"version\": \"$NODEBB_VERSION\"" "$NODEBB_DIR/install/package.json"
+chown -R "$NODEBB_USER:$NODEBB_USER" "$NODEBB_DIR"
+
+as_nodebb() {
+    runuser -u "$NODEBB_USER" -- env HOME="$NODEBB_DIR" NODE_ENV=production \
+        npm_config_cafile="$npm_config_cafile" \
+        http_proxy="${http_proxy:-}" https_proxy="${https_proxy:-}" "$@"
+}
+
+# dependencies: what "./nodebb install" does, as explicit steps
+cd "$NODEBB_DIR"
+as_nodebb cp install/package.json package.json
+as_nodebb npm install --omit=dev --no-audit --no-fund
+
+# Redis: loopback only, both families (Debian's default, made explicit)
+sed -i 's|^bind .*|bind ::1 127.0.0.1|' "$REDIS_CONF"
+grep -q '^bind ::1 127.0.0.1$' "$REDIS_CONF"
+
+# build time setup against a scratch database so the assets get compiled;
+# the values are throwaway and everything they produce is wiped below
+systemctl start redis-server
+scratch_pass=$(openssl rand -base64 18)
+as_nodebb ./nodebb setup "$(python3 -c 'import json,sys; print(json.dumps({
+  "url": "http://localhost:4567", "secret": "build-time-only", "database": "redis",
+  "redis:host": "127.0.0.1", "redis:port": 6379, "redis:password": "", "redis:database": 0,
+  "admin:username": "admin", "admin:password": sys.argv[1], "admin:password:confirm": sys.argv[1],
+  "admin:email": "admin@example.com"}))' "$scratch_pass")"
+test -d "$NODEBB_DIR/build/public"
+redis-cli flushall
+redis-cli save
+systemctl stop redis-server
+rm -f /var/lib/redis/dump.rdb
+rm -f "$NODEBB_DIR/config.json" "$NODEBB_DIR/pidfile"
+rm -rf "$NODEBB_DIR/logs"/* "$NODEBB_DIR/.npm" /root/.npm
+chown -R "$NODEBB_USER:$NODEBB_USER" "$NODEBB_DIR"
+
+# nginx: the NodeBB site replaces the default one
+rm -f /etc/nginx/sites-enabled/*
+ln -s /etc/nginx/sites-available/nodebb /etc/nginx/sites-enabled/nodebb
+
+# systemd: the unit is conditioned on config.json, so it stays inert until
+# the first boot hook has run the setup
+systemctl enable nodebb
+
+# the build time package source is not for appliances: remove it, keep the
+# documented, disabled entry for the future signed repository (overlay)
+rm -f /etc/apt/sources.list.d/keel-staging.list
+rm -rf /srv/keel-apt
+rm -rf /var/lib/apt/lists/*
+grep -q '^Enabled: no' /etc/apt/sources.list.d/keel.sources
+dpkg -l inithooks confconsole keel | grep -c '+keel1\|keel *0\.'
