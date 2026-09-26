@@ -88,10 +88,24 @@ systemctl enable nodebb
 
 # fab-plan-resolve keeps a package the parent layer already carries at the
 # parent's version, so the two core packages are upgraded here from the
-# build time source (keel, new in the plan, was installed from it already)
-apt-get install -y --only-upgrade inithooks confconsole
+# build time source (keel, new in the plan, was installed from it already).
+#
+# The overlay of this appliance ships /etc/confconsole/services.txt, which
+# is a conffile of confconsole, so dpkg sees it as locally modified and asks
+# what to do with it. The conf script runs with stdin closed, dpkg reads end
+# of file at the prompt and leaves confconsole "install ok unpacked", which
+# fails this script. Keep the overlay's file without asking.
+export DEBIAN_FRONTEND=noninteractive
+apt-get install -y --only-upgrade \
+    -o Dpkg::Options::=--force-confdef \
+    -o Dpkg::Options::=--force-confold \
+    inithooks confconsole
 [[ $(dpkg-query -W -f '${Version}\n' inithooks confconsole | grep -c '+keel1$') -eq 2 ]]
-dpkg-query -W -f '${Package} ${Version}\n' inithooks confconsole keel
+
+# a half configured package keeps its new version, so check the state too
+[[ $(dpkg-query -W -f '${Status}\n' inithooks confconsole keel \
+    | grep -c '^install ok installed$') -eq 3 ]]
+dpkg-query -W -f '${Package} ${Version} ${Status}\n' inithooks confconsole keel
 
 # the build time package source is not for appliances: remove it, keep the
 # documented, disabled entry for the future signed repository (overlay)

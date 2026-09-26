@@ -1,60 +1,43 @@
 #!/bin/bash
-# Line coverage of the project-authored shell of this repository, measured
-# with kcov (decision 0004). Exits 1 when any measured file is below the
-# threshold (default 95, the bar for project-authored code), 2 when a tool
-# is missing.
+# Line coverage of the shell this project writes, measured with kcov over
+# the bats suite (decision 0004). The measured files are the first boot
+# library, the first boot hook itself and the logic of the boot test; the 95
+# percent bar of decision 0003 applies to all three. Exits 1 below the
+# threshold, 2 when a tool is missing. tests/boot-test.sh is the thin main
+# that runs keel and LXC as root and is exercised by the container run in
+# test-appliance.yml, not measured here.
 #
-#   COVERAGE_THRESHOLD=95 tests/coverage.sh
-#
-# COVERAGE_DIR keeps the kcov reports, one directory per measured file
-# (default: a temporary directory). Needs the Debian packages bats and
-# kcov. tests/boot-test.sh and
-# overlay/usr/lib/inithooks/firstboot.d/40nodebb are the thin mains that
-# run keel, LXC, systemctl and the NodeBB setup as root; they are exercised
-# by the LXC run in test-appliance.yml, not measured here.
+#   tests/coverage.sh [THRESHOLD]
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-root="$(cd "$here/.." && pwd)"
-threshold="${COVERAGE_THRESHOLD:-95}"
+threshold="${1:-${COVERAGE_THRESHOLD:-95}}"
 
-# Each entry is a sourceable library and the bats file that exercises it.
-targets=(
-    "overlay/usr/lib/inithooks/lib/nodebb.sh:tests/nodebb.bats"
-    "tests/lib/boot-test-lib.sh:tests/boot-test.bats"
-)
-
-for tool in kcov bats; do
+for tool in kcov bats python3; do
     if ! command -v "$tool" >/dev/null; then
         echo "$tool not found (apt-get install $tool)" >&2
         exit 2
     fi
 done
 
-reports="${COVERAGE_DIR:-$(mktemp -d)}"
-failed=0
+report="${COVERAGE_DIR:-$(mktemp -d)}"
+# The include pattern is the whitelist, so no exclude pattern is needed; an
+# exclude of /tests/ would drop tests/lib/boot-test-lib.sh with it.
+kcov --include-pattern=/lib/nodebb.sh,/firstboot.d/40nodebb,/tests/lib/boot-test-lib.sh \
+    "$report" bats "$here"
 
-for target in "${targets[@]}"; do
-    library="${target%%:*}"
-    suite="${target#*:}"
-    name="$(basename "$library")"
-    report="$reports/$name"
-    mkdir -p "$report"
-    kcov --include-path="$root/$library" "$report" bats "$root/$suite"
-
-    # with --include-path the report holds one file, so its first entry is ours
-    json="$(find "$report" -name coverage.json -not -path '*/kcov-merged/*' | head -1)"
-    percent="$(grep -o '"percent_covered": "[0-9.]*"' "$json" | head -1 | grep -o '[0-9.]*')"
-    covered="$(grep -o '"covered_lines": "[0-9]*"' "$json" | head -1 | grep -o '[0-9]*')"
-    total="$(grep -o '"total_lines": "[0-9]*"' "$json" | head -1 | grep -o '[0-9]*')"
-
-    echo "$name: $percent percent ($covered of $total lines) covered, threshold $threshold"
-    if ! awk -v p="$percent" -v t="$threshold" 'BEGIN { exit !(p + 0 >= t + 0) }'; then
-        echo "$name: coverage below threshold (report: $report)" >&2
-        failed=1
-    fi
-done
-
-if [ "$failed" -ne 0 ]; then
-    exit 1
-fi
+json="$(find "$report" -mindepth 2 -maxdepth 2 -name coverage.json -not -path "*/kcov-merged/*" | head -1)"
+echo
+echo "kcov line coverage (threshold $threshold percent):"
+awk -F'"' -v threshold="$threshold" '
+    /^ *\{"file":/ {
+        n = split($4, parts, "/")
+        printf "%7.2f  %s/%s  %s", $8, $12, $16, parts[n]
+        if ($8 + 0 < threshold) { printf "  BELOW THRESHOLD"; below = 1 }
+        printf "\n"
+        seen = 1
+    }
+    END {
+        if (!seen) { print "no file measured"; exit 1 }
+        exit below
+    }' "$json"

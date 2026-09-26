@@ -118,12 +118,57 @@ assert c == {"url": "https://forum.example.org", "secret": "s",
     ! nodebb_valid_proxy "hello"
 }
 
-@test "proxy_conf with an address trusts it in geo and real_ip" {
+@test "proxy_conf lists the trusted proxy from APP_TRUSTED_PROXY in geo" {
     run nodebb_proxy_conf 2001:db8::13
     [ "$status" -eq 0 ]
     grep -q '^    2001:db8::13 1;$' <<< "$output"
+    grep -q '^    default 0;$' <<< "$output"
+}
+
+@test "proxy_conf matches geo on realip_remote_addr, never on remote_addr" {
+    run nodebb_proxy_conf 2001:db8::13
+    [ "$status" -eq 0 ]
+    grep -q '^geo \$realip_remote_addr \$nodebb_trusted_proxy {$' <<< "$output"
+    # the regression this guards: set_real_ip_from below has already
+    # rewritten $remote_addr by the time geo is evaluated, so a geo block on
+    # $remote_addr never matches the proxy and port 80 answers 307 forever
+    ! grep -q '^geo \$remote_addr' <<< "$output"
+    ! grep -q '^geo \$nodebb_trusted_proxy' <<< "$output"
+}
+
+@test "proxy_conf keeps the geo variable the same when nobody is trusted" {
+    run nodebb_proxy_conf ""
+    [ "$status" -eq 0 ]
+    grep -q '^geo \$realip_remote_addr \$nodebb_trusted_proxy {$' <<< "$output"
+}
+
+@test "proxy_conf explains the realip trap in a comment" {
+    run nodebb_proxy_conf 2001:db8::13
+    [ "$status" -eq 0 ]
+    grep -q 'realip_remote_addr' <<< "$output"
+    grep -q 'redirect loop' <<< "$output"
+}
+
+@test "proxy_conf maps the trusted proxy and https to the https scheme" {
+    run nodebb_proxy_conf 2001:db8::13
+    [ "$status" -eq 0 ]
+    grep -q '^map "\$nodebb_trusted_proxy:\$http_x_forwarded_proto" \$nodebb_scheme {$' <<< "$output"
+    grep -q '^    "1:https" https;$' <<< "$output"
+    grep -q '^    default \$scheme;$' <<< "$output"
+}
+
+@test "proxy_conf sets real_ip only for the trusted proxy" {
+    run nodebb_proxy_conf 2001:db8::13
+    [ "$status" -eq 0 ]
     grep -q '^set_real_ip_from 2001:db8::13;$' <<< "$output"
-    grep -q '"1:https" https;' <<< "$output"
+    grep -q '^real_ip_header X-Forwarded-For;$' <<< "$output"
+}
+
+@test "proxy_conf accepts an IPv4 address and a prefix" {
+    run nodebb_proxy_conf 192.0.2.0/24
+    [ "$status" -eq 0 ]
+    grep -q '^    192.0.2.0/24 1;$' <<< "$output"
+    grep -q '^set_real_ip_from 192.0.2.0/24;$' <<< "$output"
 }
 
 @test "proxy_conf without an address trusts nobody" {

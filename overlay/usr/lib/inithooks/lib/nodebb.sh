@@ -104,6 +104,9 @@ nodebb_valid_proxy() {
 # nodebb_proxy_conf ADDR: the nginx conf.d file that trusts X-Forwarded-Proto
 # and X-Forwarded-For from ADDR; with no ADDR the file trusts nobody. Fails
 # on an address nginx would reject.
+#
+# The geo block matches on $realip_remote_addr and never on $remote_addr:
+# see the comment it writes into the file, and tests/nodebb.bats.
 nodebb_proxy_conf() {
     local addr=$1 trusted="" realip=""
     if [[ -n "$addr" ]]; then
@@ -115,7 +118,19 @@ nodebb_proxy_conf() {
 # Which upstream proxy may set X-Forwarded-Proto for the NodeBB site.
 # Written at first boot by firstboot.d/40nodebb from APP_TRUSTED_PROXY
 # (app.options.trusted_proxy in the instance spec).
-geo \$nodebb_trusted_proxy {
+#
+# The geo block matches on \$realip_remote_addr, not on \$remote_addr, and
+# that is not a detail. This same file sets set_real_ip_from with
+# real_ip_header X-Forwarded-For; the realip module runs in the post read
+# phase, before any geo or map variable is evaluated, so by the time the
+# trust test runs \$remote_addr already holds the address the proxy put in
+# X-Forwarded-For, which is the visitor, not the proxy. A geo block on
+# \$remote_addr therefore never matches the trusted proxy, \$nodebb_scheme
+# stays http, and every request to port 80 is answered with a 307 to https,
+# which the TLS terminating proxy sends straight back: a redirect loop.
+# \$realip_remote_addr keeps the address the connection really came from,
+# which is the one to trust. Do not simplify this back to \$remote_addr.
+geo \$realip_remote_addr \$nodebb_trusted_proxy {
     default 0;
 ${trusted}}
 
