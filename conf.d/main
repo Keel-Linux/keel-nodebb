@@ -50,9 +50,18 @@ as_nodebb npm install --omit=dev --no-audit --no-fund
 sed -i 's|^bind .*|bind ::1 127.0.0.1|' "$REDIS_CONF"
 grep -q '^bind ::1 127.0.0.1$' "$REDIS_CONF"
 
-# build time setup against a scratch database so the assets get compiled;
-# the values are throwaway and everything they produce is wiped below
-systemctl start redis-server
+# build time setup against a scratch Redis so the assets get compiled; the
+# values are throwaway and everything they produce is wiped below. The
+# scratch instance is a plain process without persistence: inside the build
+# chroot the system service cannot write its RDB snapshot and refuses writes.
+runuser -u redis -- redis-server --bind 127.0.0.1 --port 6379 --save "" \
+    --appendonly no --dir /tmp --daemonize yes --pidfile /tmp/redis-scratch.pid \
+    --logfile /tmp/redis-scratch.log
+for _ in $(seq 1 30); do
+    [[ "$(redis-cli ping 2>/dev/null)" == PONG ]] && break
+    sleep 1
+done
+[[ "$(redis-cli ping)" == PONG ]]
 scratch_pass=$(openssl rand -base64 18)
 as_nodebb ./nodebb setup "$(python3 -c 'import json,sys; print(json.dumps({
   "url": "http://localhost:4567", "secret": "build-time-only", "database": "redis",
@@ -61,9 +70,8 @@ as_nodebb ./nodebb setup "$(python3 -c 'import json,sys; print(json.dumps({
   "admin:email": "admin@example.com"}))' "$scratch_pass")"
 test -d "$NODEBB_DIR/build/public"
 redis-cli flushall
-redis-cli save
-systemctl stop redis-server
-rm -f /var/lib/redis/dump.rdb
+redis-cli shutdown nosave
+rm -f /tmp/redis-scratch.pid /tmp/redis-scratch.log /var/lib/redis/dump.rdb
 rm -f "$NODEBB_DIR/config.json" "$NODEBB_DIR/pidfile"
 rm -rf "$NODEBB_DIR/logs"/* "$NODEBB_DIR/.npm" /root/.npm
 chown -R "$NODEBB_USER:$NODEBB_USER" "$NODEBB_DIR"
