@@ -52,25 +52,27 @@ grep -q '^bind ::1 127.0.0.1$' "$REDIS_CONF"
 
 # build time setup against a scratch Redis so the assets get compiled; the
 # values are throwaway and everything they produce is wiped below. The
-# scratch instance is a plain process without persistence: inside the build
-# chroot the system service cannot write its RDB snapshot and refuses writes.
-runuser -u redis -- redis-server --bind 127.0.0.1 --port 6379 --save "" \
+# scratch instance is a plain process without persistence on its own port:
+# the chroot shares the host's network, so a service started here would
+# collide with, or survive as, a process on the build host.
+SCRATCH_PORT=16379
+runuser -u redis -- redis-server --bind 127.0.0.1 --port $SCRATCH_PORT --save "" \
     --appendonly no --dir /tmp --daemonize yes --pidfile /tmp/redis-scratch.pid \
     --logfile /tmp/redis-scratch.log
 for _ in $(seq 1 30); do
-    [[ "$(redis-cli ping 2>/dev/null)" == PONG ]] && break
+    [[ "$(redis-cli -p $SCRATCH_PORT ping 2>/dev/null)" == PONG ]] && break
     sleep 1
 done
-[[ "$(redis-cli ping)" == PONG ]]
+[[ "$(redis-cli -p $SCRATCH_PORT ping)" == PONG ]]
 scratch_pass=$(openssl rand -base64 18)
 as_nodebb ./nodebb setup "$(python3 -c 'import json,sys; print(json.dumps({
   "url": "http://localhost:4567", "secret": "build-time-only", "database": "redis",
-  "redis:host": "127.0.0.1", "redis:port": 6379, "redis:password": "", "redis:database": 0,
+  "redis:host": "127.0.0.1", "redis:port": int(sys.argv[2]), "redis:password": "", "redis:database": 0,
   "admin:username": "admin", "admin:password": sys.argv[1], "admin:password:confirm": sys.argv[1],
-  "admin:email": "admin@example.com"}))' "$scratch_pass")"
+  "admin:email": "admin@example.com"}))' "$scratch_pass" "$SCRATCH_PORT")"
 test -d "$NODEBB_DIR/build/public"
-redis-cli flushall
-redis-cli shutdown nosave
+redis-cli -p $SCRATCH_PORT flushall
+redis-cli -p $SCRATCH_PORT shutdown nosave
 rm -f /tmp/redis-scratch.pid /tmp/redis-scratch.log /var/lib/redis/dump.rdb
 rm -f "$NODEBB_DIR/config.json" "$NODEBB_DIR/pidfile"
 rm -rf "$NODEBB_DIR/logs"/* "$NODEBB_DIR/.npm" /root/.npm
