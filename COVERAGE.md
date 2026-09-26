@@ -32,19 +32,20 @@ LXC and runs `tests/boot-test.sh` against it. Nothing is built there: the
 runner has no fab, deck or buildtasks. That job produces the check
 `appliance / build-and-boot`.
 
-State of that check on 2026-09-26: **failing on a real defect of the
-published layer, so it is not a required status yet.** The `nodebb` layer on
-the mirror still carries the build time wrappers `/usr/local/bin/systemctl`
-and `/usr/local/bin/service` from the `turnkey.d/systemd-chroot` overlay,
-which call each other in a loop outside a build chroot, so the first boot
-never gets past `10regen-sshkeys`. `core` and `nodejs-nginx` do not carry
-them: `removelists-final/turnkey` in common strips them and `bt-layer` adds
-them back as `LAYER_CHILD_OVERLAYS` for a child build without stripping the
-finished child layer (buildtasks issue 6). After that fix the layer is
-rebuilt and published and this check is added to the protection rule of
-`main`. Measured before the failure, on the runner: `keel pull` of the three
-layers (598 MB) 7 s, `keel verify` exit 8, assemble 43 s, container started
-with a global IPv6 address in 5 s.
+State of that check on 2026-09-26: **failing on a defect of the published
+layer, so it is not a required status yet.** The `nodebb` layer on
+the mirror (sha256 `40e3f4da`) carries the build time wrappers
+`/usr/local/bin/systemctl` and `/usr/local/bin/service`, which call each other
+in a loop outside a build chroot, so the first boot never gets past
+`10regen-sshkeys`. The cause is the one pull request 1 fixed: the conffile
+prompt failed the `root.patched` target, so fab never reached the step that
+removes the build overlays, and `bt-layer` packed and published the tree
+anyway (buildtasks issue 6). The recipe is fixed; the layer on the mirror is
+not, because it has not been rebuilt. Once it is, this check goes green and is
+added to the protection rule of `main`. Measured
+before the failure, on the runner: `keel pull` of the three layers (598 MB)
+7 s, `keel verify` exit 8, assemble 43 s, container started with a global
+IPv6 address in 5 s.
 
 ### What the hook tests cover
 
@@ -59,9 +60,10 @@ fallback, the missing password with and without a terminal.
 
 ## Plan
 
-- Fix `bt-layer` so a finished child layer is stripped the way a rootfs layer
-  is (buildtasks issue 6), rebuild and publish `nodebb`, then require
-  `appliance / build-and-boot` on `main`.
+- Rebuild and publish `nodebb` now that pull request 1 fixed the conffile
+  prompt, then require `appliance / build-and-boot` on `main`. Separately,
+  `bt-layer` should refuse to pack a build whose `make` failed (buildtasks
+  issue 6), so a broken layer cannot reach the mirror again.
 - Keep every decision in lib/nodebb.sh so the hook stays a thin caller.
 - Move the dialog helper to the same pattern as `bin/setpass.py` in inithooks
   and test it with a Dialog stub when the inithooks fork gains one.
