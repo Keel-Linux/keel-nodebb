@@ -1,7 +1,9 @@
 #!/bin/bash
-# Line coverage of overlay/usr/lib/inithooks/lib/nodebb.sh under tests/nodebb.bats,
-# measured with kcov (decision 0004). Exits 1 below the threshold (default
-# 95, or COVERAGE_THRESHOLD), 2 when a tool is missing.
+# Line coverage of the shell this project writes, measured with kcov over
+# the bats suite (decision 0004). The measured files are the first boot
+# library and the first boot hook itself; the 95 percent bar of decision
+# 0003 applies to both. Exits 1 below the threshold, 2 when a tool is
+# missing.
 #
 #   tests/coverage.sh [THRESHOLD]
 set -euo pipefail
@@ -17,8 +19,9 @@ for tool in kcov bats python3; do
 done
 
 report="${COVERAGE_DIR:-$(mktemp -d)}"
-kcov --include-pattern=/lib/nodebb.sh --exclude-pattern=/tests/ \
-    "$report" bats "$here/nodebb.bats"
+kcov --include-pattern=/lib/nodebb.sh,/firstboot.d/40nodebb \
+    --exclude-pattern=/tests/ \
+    "$report" bats "$here"
 
 json="$(find "$report" -mindepth 2 -maxdepth 2 -name coverage.json -not -path "*/kcov-merged/*" | head -1)"
 echo
@@ -29,5 +32,9 @@ awk -F'"' -v threshold="$threshold" '
         printf "%7.2f  %s/%s  %s", $8, $12, $16, parts[n]
         if ($8 + 0 < threshold) { printf "  BELOW THRESHOLD"; below = 1 }
         printf "\n"
+        seen = 1
     }
-    END { exit below }' "$json"
+    END {
+        if (!seen) { print "no file measured"; exit 1 }
+        exit below
+    }' "$json"
