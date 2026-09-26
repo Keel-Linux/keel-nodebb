@@ -109,3 +109,32 @@ assert c == {"url": "https://forum.example.org", "secret": "s",
     run nodebb_wait_redis "$scratch/bin/redis-cli" 1
     [ "$status" -eq 1 ]
 }
+
+@test "valid_proxy accepts IPv6 and IPv4 with or without a prefix and rejects junk" {
+    nodebb_valid_proxy 2001:db8::13
+    nodebb_valid_proxy 2001:db8::/64
+    nodebb_valid_proxy 192.0.2.7
+    ! nodebb_valid_proxy "2001:db8::13; }"
+    ! nodebb_valid_proxy "hello"
+}
+
+@test "proxy_conf with an address trusts it in geo and real_ip" {
+    run nodebb_proxy_conf 2001:db8::13
+    [ "$status" -eq 0 ]
+    grep -q '^    2001:db8::13 1;$' <<< "$output"
+    grep -q '^set_real_ip_from 2001:db8::13;$' <<< "$output"
+    grep -q '"1:https" https;' <<< "$output"
+}
+
+@test "proxy_conf without an address trusts nobody" {
+    run nodebb_proxy_conf ""
+    [ "$status" -eq 0 ]
+    ! grep -q ' 1;$' <<< "$output"
+    ! grep -q set_real_ip_from <<< "$output"
+    grep -q 'default 0;' <<< "$output"
+}
+
+@test "proxy_conf rejects an address nginx would not accept" {
+    run nodebb_proxy_conf "2001:db8::13; }"
+    [ "$status" -eq 1 ]
+}

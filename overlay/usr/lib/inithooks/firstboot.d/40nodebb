@@ -1,8 +1,8 @@
 #!/bin/bash -e
 # First boot of the NodeBB appliance: run the non-interactive NodeBB setup
 # from the values in the inithooks conf (APP_DOMAIN, APP_EMAIL, APP_PASS,
-# APP_ADMIN_USER, written by keel spec apply or a preseed) and start the
-# service. Idempotent: once config.json exists nothing is done again.
+# APP_ADMIN_USER, APP_TRUSTED_PROXY, written by keel spec apply or a preseed)
+# and start the service. Idempotent: once config.json exists nothing is done again.
 # Decisions live in lib/nodebb.sh; the only dialog is bin/nodebb.py, called
 # for a value that is absent when a terminal is attached.
 
@@ -11,6 +11,8 @@ INITHOOKS_DEFAULT="${INITHOOKS_DEFAULT:-/etc/default/inithooks}"
 source "$INITHOOKS_DEFAULT"
 # shellcheck source=../lib/nodebb.sh
 source "$INITHOOKS_PATH/lib/nodebb.sh"
+
+NGINX_PROXY_CONF="${NGINX_PROXY_CONF:-/etc/nginx/conf.d/nodebb-proxy.conf}"
 
 fatal() { echo "fatal [40nodebb]: $*" >&2; exit 1; }
 
@@ -49,6 +51,11 @@ runuser -u "$NODEBB_USER" -- env HOME="$NODEBB_DIR" NODE_ENV=production \
 nodebb_config_patch "$NODEBB_DIR/config.json" "$NODEBB_BIND" "$NODEBB_PORT"
 chown "$NODEBB_USER:$NODEBB_USER" "$NODEBB_DIR/config.json"
 chmod 640 "$NODEBB_DIR/config.json"
+
+# the public proxy that terminates TLS for the apex may set X-Forwarded-Proto
+nodebb_proxy_conf "$APP_TRUSTED_PROXY" > "$NGINX_PROXY_CONF" \
+    || fatal "APP_TRUSTED_PROXY='$APP_TRUSTED_PROXY' is not an address nginx accepts"
+nginx -t
 
 systemctl daemon-reload
 systemctl enable --now nodebb.service

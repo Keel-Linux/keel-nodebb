@@ -94,3 +94,35 @@ nodebb_wait_redis() {
     done
     return 1
 }
+
+# nodebb_valid_proxy ADDR: an IPv6 or IPv4 address, optionally with a prefix
+# length, as nginx geo and set_real_ip_from accept it
+nodebb_valid_proxy() {
+    [[ "$1" =~ ^[0-9a-fA-F:.]+(/[0-9]{1,3})?$ ]]
+}
+
+# nodebb_proxy_conf ADDR: the nginx conf.d file that trusts X-Forwarded-Proto
+# and X-Forwarded-For from ADDR; with no ADDR the file trusts nobody. Fails
+# on an address nginx would reject.
+nodebb_proxy_conf() {
+    local addr=$1 trusted="" realip=""
+    if [[ -n "$addr" ]]; then
+        nodebb_valid_proxy "$addr" || return 1
+        trusted="    $addr 1;"$'\n'
+        realip=$'\n'"set_real_ip_from $addr;"$'\n'"real_ip_header X-Forwarded-For;"$'\n'
+    fi
+    cat <<CONF
+# Which upstream proxy may set X-Forwarded-Proto for the NodeBB site.
+# Written at first boot by firstboot.d/40nodebb from APP_TRUSTED_PROXY
+# (app.options.trusted_proxy in the instance spec).
+geo \$nodebb_trusted_proxy {
+    default 0;
+${trusted}}
+
+map "\$nodebb_trusted_proxy:\$http_x_forwarded_proto" \$nodebb_scheme {
+    "1:https" https;
+    default \$scheme;
+}
+${realip}
+CONF
+}

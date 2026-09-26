@@ -1,4 +1,8 @@
 # Instance spec for the project forum, IPv6 first (docs/spec.md in keel).
+# The forum is served at the apex, keellinux.org: a public services VM
+# (2804:710:d0:5::13) terminates TLS and reverse proxies to this appliance
+# over IPv6, so the fqdn and the NodeBB url are the apex and that VM is the
+# trusted proxy for X-Forwarded-Proto.
 # Copy to /etc/keel/instance.yaml in the rootfs and create the two secret
 # files (mode 0600, owned by root) before the first boot:
 #   /etc/keel/secrets/root_password
@@ -7,7 +11,7 @@ version: 1
 
 instance:
   hostname: forum
-  fqdn: forum.keellinux.org
+  fqdn: keellinux.org
 
 network:
   # LXC: the host owns eth0 (macvlan, bridge mode) and the address comes by
@@ -21,13 +25,13 @@ network:
 
 tls:
   acme:
-    # false for the first boot: forum.keellinux.org is not in DNS yet, so
-    # an http-01 challenge cannot reach this instance. Set true once the
-    # AAAA record points here; nginx already serves /.well-known/acme-challenge/
+    # false: TLS for the apex terminates on the public VM, not here. nginx
+    # still serves /.well-known/acme-challenge/ for a future certificate of
+    # its own.
     enabled: false
     challenge: http-01
     domains:
-      - forum.keellinux.org
+      - keellinux.org
 
 secrets:
   root_password:
@@ -37,9 +41,10 @@ secrets:
 
 app:
   email: admin@keellinux.org
-  domain: forum.keellinux.org
+  domain: keellinux.org
   options:
     admin_user: admin
+    trusted_proxy: "2804:710:d0:5::13"
 
 security:
   alerts: skip

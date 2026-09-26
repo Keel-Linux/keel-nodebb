@@ -1,5 +1,11 @@
 # NodeBB behind nginx. IPv6 first: the listeners take [::] and 0.0.0.0, the
 # upstream is NodeBB on the IPv6 loopback.
+#
+# The forum is served at the apex (keellinux.org) by a public services VM
+# that terminates TLS and reverse proxies to this appliance over IPv6 on
+# port 80. $nodebb_scheme (conf.d/nodebb-proxy.conf) is "https" when such a
+# request comes from a trusted proxy with X-Forwarded-Proto: https, and the
+# request's own scheme otherwise; anything else on port 80 is redirected.
 
 upstream nodebb {
     server [::1]:4567;
@@ -17,7 +23,10 @@ server {
     }
 
     location / {
-        return 307 https://$host$request_uri;
+        if ($nodebb_scheme != https) {
+            return 307 https://$host$request_uri;
+        }
+        include /etc/nginx/include/nodebb-proxy;
     }
 }
 
@@ -27,18 +36,7 @@ server {
     server_name _;
     include /etc/nginx/snippets/ssl.conf;
 
-    client_max_body_size 20M;
-
     location / {
-        proxy_pass http://nodebb;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_cache_bypass $http_upgrade;
-        proxy_redirect off;
+        include /etc/nginx/include/nodebb-proxy;
     }
 }
