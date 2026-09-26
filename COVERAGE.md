@@ -8,7 +8,7 @@ acceptance test of an appliance recipe, docs/org-plan.md section 1).
 
 | File | Test | Lines | Note |
 | --- | --- | --- | --- |
-| overlay/usr/lib/inithooks/lib/nodebb.sh | tests/nodebb.bats (26 tests) | 100 percent (43/43) under kcov | every function and every branch |
+| overlay/usr/lib/inithooks/lib/nodebb.sh | tests/nodebb.bats (25 tests) | 100 percent (43/43) under kcov | every function and every branch |
 | overlay/usr/lib/inithooks/firstboot.d/40nodebb | tests/hook.bats (15 tests) | 96.97 percent (32/33) under kcov | the one uncovered line is inside the dialog loop, which needs a terminal |
 | overlay/etc/nginx/* | tests/nginx.bats (12 tests) | not executable | asserted as content: the geo variable, the map, the listeners, the proxy headers |
 | overlay/usr/lib/inithooks/bin/nodebb.py | none | 0 | dialog wrapper, only reached with a terminal attached |
