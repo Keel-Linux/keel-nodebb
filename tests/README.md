@@ -83,12 +83,15 @@ layers (598 MB) 7 s from the mirror on the same host, assemble 43 s.
 ### Known failure of the published layer
 
 The run of 2026-09-26 does not reach step 7: the first boot stops in
-`10regen-sshkeys` because the published `nodebb` layer still carries the
-build time wrappers `/usr/local/bin/systemctl` and `/usr/local/bin/service`
-(the `turnkey.d/systemd-chroot` overlay), which call each other forever
-outside a build chroot. `core` and `nodejs-nginx` do not carry them:
-`removelists-final/turnkey` in common strips them, and `bt-layer` adds them
-back as `LAYER_CHILD_OVERLAYS` for a child build without stripping them from
-the finished child layer. The fix belongs in buildtasks and the layer has to
-be rebuilt; until then this test fails on the mirror's `nodebb`, which is
-the gate reporting a real defect.
+`10regen-sshkeys`. The `nodebb` layer on
+the mirror (sha256 `40e3f4da`) carries the build time wrappers
+`/usr/local/bin/systemctl` and `/usr/local/bin/service`, which call each other
+in a loop outside a build chroot, so the first boot never gets past
+`10regen-sshkeys`. The cause is the one pull request 1 fixed: the conffile
+prompt failed the `root.patched` target, so fab never reached the step that
+removes the build overlays, and `bt-layer` packed and published the tree
+anyway (buildtasks issue 6). The recipe is fixed; the layer on the mirror is
+not, because it has not been rebuilt. Once it is, this check goes green and is
+added to the protection rule of `main`. Until then this test fails on the
+mirror's `nodebb`, which is the gate reporting a real defect rather than a
+problem with the test.
