@@ -86,10 +86,16 @@ ln -s /etc/nginx/sites-available/nodebb /etc/nginx/sites-enabled/nodebb
 # the first boot hook has run the setup
 systemctl enable nodebb
 
+# fab-plan-resolve keeps a package the parent layer already carries at the
+# parent's version, so the two core packages are upgraded here from the
+# build time source (keel, new in the plan, was installed from it already)
+apt-get install -y --only-upgrade inithooks confconsole
+[[ $(dpkg-query -W -f '${Version}\n' inithooks confconsole | grep -c '+keel1$') -eq 2 ]]
+dpkg-query -W -f '${Package} ${Version}\n' inithooks confconsole keel
+
 # the build time package source is not for appliances: remove it, keep the
 # documented, disabled entry for the future signed repository (overlay)
 rm -f /etc/apt/sources.list.d/keel-staging.list
 rm -rf /srv/keel-apt
 rm -rf /var/lib/apt/lists/*
 grep -q '^Enabled: no' /etc/apt/sources.list.d/keel.sources
-dpkg -l inithooks confconsole keel | grep -c '+keel1\|keel *0\.'
