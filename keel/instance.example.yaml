@@ -1,0 +1,51 @@
+# Instance spec for the project forum, IPv6 first (docs/spec.md in keel).
+# Copy to /etc/keel/instance.yaml in the rootfs and create the two secret
+# files (mode 0600, owned by root) before the first boot:
+#   /etc/keel/secrets/root_password
+#   /etc/keel/secrets/app_password      the NodeBB admin password
+version: 1
+
+instance:
+  hostname: forum
+  fqdn: forum.keellinux.org
+
+network:
+  # LXC: the host owns eth0 (macvlan, bridge mode) and the address comes by
+  # SLAAC from the host's /64. Switch to method static with an address once
+  # the DNS record exists, so the address the record points at never moves.
+  managed_by: host
+  interfaces:
+    eth0:
+      ipv6:
+        method: auto
+
+tls:
+  acme:
+    # false for the first boot: forum.keellinux.org is not in DNS yet, so
+    # an http-01 challenge cannot reach this instance. Set true once the
+    # AAAA record points here; nginx already serves /.well-known/acme-challenge/
+    enabled: false
+    challenge: http-01
+    domains:
+      - forum.keellinux.org
+
+secrets:
+  root_password:
+    file: /etc/keel/secrets/root_password
+  app_password:
+    file: /etc/keel/secrets/app_password
+
+app:
+  email: admin@keellinux.org
+  domain: forum.keellinux.org
+  options:
+    admin_user: admin
+
+security:
+  alerts: skip
+  updates: skip
+
+hub:
+  api_key: skip
+
+first_login_wizard: false
