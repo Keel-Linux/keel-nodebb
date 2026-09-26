@@ -48,7 +48,9 @@ app:
 
 security:
   alerts: skip
-  updates: skip
+  # A first boot input, not machine state: whether 95secupdates installs the
+  # pending security updates once. The appliance keeps them current either way.
+  updates_at_first_boot: skip
 
 hub:
   api_key: skip
