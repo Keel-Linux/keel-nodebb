@@ -7,14 +7,12 @@
 # forum.keellinux.org and the public services VM as the trusted proxy. The
 # values here are what a container assembled from the nodebb layer must look
 # like once its first boot has finished, so `keel diff` finding no drift is
-# the verdict. Two of them are not what a reader would guess:
+# the verdict. One of them is not what a reader would guess:
 #
 #   ipv6.method: dhcp   ifupdown has no SLAAC method, so `inet6 dhcp` is
 #                       what the hook writes for `auto` as well and what
-#                       inspect reads back (docs/spec.md, network).
-#   updates: force      the core layer ships /etc/cron-apt/config with
-#                       forced security updates; declaring anything else
-#                       would be drift the appliance never resolves.
+#                       inspect reads back, which is why diff can only call
+#                       the field unknown offline (docs/spec.md, network).
 version: 1
 
 instance:
@@ -51,6 +49,8 @@ hub:
 
 security:
   alerts: skip
-  updates: force
+  # A first boot input, not machine state: 95secupdates installs the pending
+  # security updates once. diff does not compare it.
+  updates_at_first_boot: force
 
 first_login_wizard: false
