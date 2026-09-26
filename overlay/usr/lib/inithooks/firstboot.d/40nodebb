@@ -1,0 +1,58 @@
+#!/bin/bash -e
+# First boot of the NodeBB appliance: run the non-interactive NodeBB setup
+# from the values in the inithooks conf (APP_DOMAIN, APP_EMAIL, APP_PASS,
+# APP_ADMIN_USER, written by keel spec apply or a preseed) and start the
+# service. Idempotent: once config.json exists nothing is done again.
+# Decisions live in lib/nodebb.sh; the only dialog is bin/nodebb.py, called
+# for a value that is absent when a terminal is attached.
+
+INITHOOKS_DEFAULT="${INITHOOKS_DEFAULT:-/etc/default/inithooks}"
+# shellcheck source=/etc/default/inithooks
+source "$INITHOOKS_DEFAULT"
+# shellcheck source=../lib/nodebb.sh
+source "$INITHOOKS_PATH/lib/nodebb.sh"
+
+fatal() { echo "fatal [40nodebb]: $*" >&2; exit 1; }
+
+if [[ -e "$INITHOOKS_CONF" ]]; then
+    # shellcheck source=/dev/null
+    source "$INITHOOKS_CONF"
+fi
+
+if ! nodebb_needs_setup "$NODEBB_DIR"; then
+    echo "NodeBB already set up ($NODEBB_DIR/config.json exists), nothing to do"
+    exit 0
+fi
+
+mapfile -t missing < <(nodebb_missing_values "$APP_PASS")
+if [[ ${#missing[@]} -gt 0 ]]; then
+    [[ -t 0 ]] || fatal "no ${missing[*]} in $INITHOOKS_CONF and no terminal to ask on"
+    while IFS='=' read -r key value; do
+        [[ -n "$key" ]] && declare "$key=$value"
+    done < <("$INITHOOKS_PATH/bin/nodebb.py" "${missing[@]}")
+fi
+
+domain=$(nodebb_domain "$APP_DOMAIN" "$FQDN" "$(hostname -f 2>/dev/null || hostname)")
+url=$(nodebb_url "$domain")
+email=$(nodebb_email "$APP_EMAIL" "$domain")
+admin=$(nodebb_admin_user "$APP_ADMIN_USER")
+config=$(nodebb_setup_json "$url" "$admin" "$APP_PASS" "$email") \
+    || fatal "incomplete values for the NodeBB setup"
+
+systemctl start redis-server.service
+nodebb_wait_redis redis-cli 30 || fatal "redis-server did not answer"
+
+cd "$NODEBB_DIR"
+# shellcheck disable=SC2046
+runuser -u "$NODEBB_USER" -- env HOME="$NODEBB_DIR" NODE_ENV=production \
+    ./nodebb setup "$config" $(nodebb_setup_args "$NODEBB_DIR")
+nodebb_config_patch "$NODEBB_DIR/config.json" "$NODEBB_BIND" "$NODEBB_PORT"
+chown "$NODEBB_USER:$NODEBB_USER" "$NODEBB_DIR/config.json"
+chmod 640 "$NODEBB_DIR/config.json"
+
+systemctl daemon-reload
+systemctl enable --now nodebb.service
+# the certificate hook only restarts services that were active: make sure
+# nginx serves with the regenerated certificate
+systemctl restart nginx.service
+echo "NodeBB set up at $url, admin user '$admin'"
