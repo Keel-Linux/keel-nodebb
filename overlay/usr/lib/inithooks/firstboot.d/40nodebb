@@ -52,7 +52,7 @@ nodebb_config_patch "$NODEBB_DIR/config.json" "$NODEBB_BIND" "$NODEBB_PORT"
 chown "$NODEBB_USER:$NODEBB_USER" "$NODEBB_DIR/config.json"
 chmod 640 "$NODEBB_DIR/config.json"
 
-# the public proxy that terminates TLS for the apex may set X-Forwarded-Proto
+# the public proxy that terminates TLS for the forum may set X-Forwarded-Proto
 nodebb_proxy_conf "$APP_TRUSTED_PROXY" > "$NGINX_PROXY_CONF" \
     || fatal "APP_TRUSTED_PROXY='$APP_TRUSTED_PROXY' is not an address nginx accepts"
 nginx -t

@@ -1,7 +1,7 @@
 # NodeBB behind nginx. IPv6 first: the listeners take [::] and 0.0.0.0, the
 # upstream is NodeBB on the IPv6 loopback.
 #
-# The forum is served at the apex (keellinux.org) by a public services VM
+# The forum name (forum.keellinux.org) is served by a public services VM
 # that terminates TLS and reverse proxies to this appliance over IPv6 on
 # port 80. $nodebb_scheme (conf.d/nodebb-proxy.conf) is "https" when such a
 # request comes from a trusted proxy with X-Forwarded-Proto: https, and the

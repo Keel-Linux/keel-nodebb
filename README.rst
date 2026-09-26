@@ -26,9 +26,9 @@ All from the Debian 13 (Trixie) archive except NodeBB itself:
 - Node.js 20.19 and npm from Debian.
 - Redis 8.0 as the NodeBB database, bound to ``::1`` and ``127.0.0.1``.
 - nginx in front on ``[::]:443`` and ``[::]:80`` (IPv6 first, IPv4 too),
-  proxying to NodeBB on ``[::1]:4567``. The forum is served at the apex,
-  ``keellinux.org``, by a public services VM that terminates TLS and reverse
-  proxies to the appliance over IPv6 on port 80: requests from the trusted
+  proxying to NodeBB on ``[::1]:4567``. The forum, ``forum.keellinux.org``,
+  is served by a public services VM that terminates TLS and reverse proxies
+  to the appliance over IPv6 on port 80: requests from the trusted
   proxy (``app.options.trusted_proxy``) with ``X-Forwarded-Proto: https`` are
   proxied, every other request on port 80 is redirected to https, and
   ``/.well-known/acme-challenge/`` stays served for http-01.
