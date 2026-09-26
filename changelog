@@ -3,8 +3,9 @@ turnkey-nodebb-19.0 (1) turnkey; urgency=low
   * Initial release of the NodeBB appliance for Keel, compatible with
     TurnKey Linux appliances.
 
-  * NodeBB 4.11.2 installed under /var/www/nodebb from the release tarball,
-    pinned by version and sha256 in conf.d/main.
+  * NodeBB 4.10.3 installed under /var/www/nodebb from the release tarball,
+    pinned by version and sha256 in conf.d/main; the last release whose
+    dependencies run on Debian's Node.js 20.
 
   * Node.js 20, npm, Redis 8 and nginx from Debian 13 (Trixie).
 

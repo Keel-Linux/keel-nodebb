@@ -18,15 +18,20 @@ Stack
 
 All from the Debian 13 (Trixie) archive except NodeBB itself:
 
-- NodeBB 4.11.2, installed under ``/var/www/nodebb`` from the release
-  tarball, pinned by version and sha256 in ``conf.d/main``. 4.11.2 is the last
-  release whose ``install/package.json`` declares ``node >= 20``; 4.11.3 and
-  later require Node.js 22, which Trixie does not carry.
+- NodeBB 4.10.3, installed under ``/var/www/nodebb`` from the release
+  tarball, pinned by version and sha256 in ``conf.d/main``. 4.10.3 is the last
+  release whose pinned dependencies run on Node.js 20: 4.11.0 to 4.11.2 still
+  declare ``node >= 20`` but pin ``undici 8.1.0``, which requires Node 22.19,
+  and 4.11.3 and later declare ``node >= 22``. Trixie carries Node.js 20 only.
 - Node.js 20.19 and npm from Debian.
 - Redis 8.0 as the NodeBB database, bound to ``::1`` and ``127.0.0.1``.
 - nginx in front on ``[::]:443`` and ``[::]:80`` (IPv6 first, IPv4 too),
-  proxying to NodeBB on ``[::1]:4567``; port 80 redirects to https and keeps
-  ``/.well-known/acme-challenge/`` for http-01.
+  proxying to NodeBB on ``[::1]:4567``. The forum is served at the apex,
+  ``keellinux.org``, by a public services VM that terminates TLS and reverse
+  proxies to the appliance over IPv6 on port 80: requests from the trusted
+  proxy (``app.options.trusted_proxy``) with ``X-Forwarded-Proto: https`` are
+  proxied, every other request on port 80 is redirected to https, and
+  ``/.well-known/acme-challenge/`` stays served for http-01.
 - A systemd unit, ``nodebb.service``, conditioned on ``config.json`` so it is
   inert until the first boot has run the setup.
 - Postfix bound to localhost, Webmin, web shell, confconsole: TurnKey Core.
@@ -64,8 +69,9 @@ First boot
 The instance spec (``keel/instance.example.yaml``) is copied to
 ``/etc/keel/instance.yaml`` with the two secret files it names under
 ``/etc/keel/secrets``. ``keel spec apply`` renders it into the inithooks conf;
-``firstboot.d/40nodebb`` reads ``APP_DOMAIN``, ``APP_EMAIL``, ``APP_PASS`` and
-``APP_ADMIN_USER`` from it, waits for Redis, runs ``./nodebb setup`` with a
+``firstboot.d/40nodebb`` reads ``APP_DOMAIN``, ``APP_EMAIL``, ``APP_PASS``,
+``APP_ADMIN_USER`` and ``APP_TRUSTED_PROXY`` from it, writes the nginx
+trusted proxy file, waits for Redis, runs ``./nodebb setup`` with a
 JSON initial config (no dialog), binds NodeBB to ``[::1]:4567`` behind the
 proxy and starts the service. The hook is idempotent: once ``config.json``
 exists it does nothing. Decisions live in ``lib/nodebb.sh`` and are tested

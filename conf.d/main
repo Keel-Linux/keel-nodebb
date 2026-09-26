@@ -5,8 +5,10 @@
 # that setup: the first boot hook (firstboot.d/40nodebb) runs the real
 # setup from the instance spec.
 
-NODEBB_VERSION=4.11.2
-NODEBB_SHA256=32204fffbed6cb87fefe9bed88d759d00787f645e3473b801758efa76d822b0e
+# 4.10.3 is the last release whose own dependency pins run on Node.js 20
+# (Debian 13): 4.11.0 and later pin undici 8.1.0, which needs Node 22.19.
+NODEBB_VERSION=4.10.3
+NODEBB_SHA256=093b29081970f30d7f3b3863833e606861da29c6cf9438616de3c6c6675906a7
 NODEBB_URL="https://github.com/NodeBB/NodeBB/archive/refs/tags/v${NODEBB_VERSION}.tar.gz"
 NODEBB_USER=nodebb
 NODEBB_DIR=/var/www/nodebb
