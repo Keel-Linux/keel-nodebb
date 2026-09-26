@@ -1,0 +1,7 @@
+#include <turnkey/base>
+#include <turnkey/nodejs-nginx>
+
+nodejs
+npm
+redis-server
+redis-tools

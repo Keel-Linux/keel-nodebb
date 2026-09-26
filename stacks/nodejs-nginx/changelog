@@ -1,0 +1,6 @@
+turnkey-nodejs-nginx-19.0 (1) turnkey; urgency=low
+
+  * Stack layer for Keel appliances: nginx, Node.js 20, npm and Redis 8
+    from Debian 13 (Trixie), on top of core.
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Sat, 26 Sep 2026 12:00:00 +0000
