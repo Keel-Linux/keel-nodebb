@@ -12,14 +12,14 @@ acceptance test of an appliance recipe, docs/org-plan.md section 1).
 | overlay/usr/lib/inithooks/firstboot.d/40nodebb | tests/hook.bats (15 tests) | 96.97 percent (32/33) under kcov | the one uncovered line is inside the dialog loop, which needs a terminal |
 | overlay/etc/nginx/* | tests/nginx.bats (12 tests) | not executable | asserted as content: the geo variable, the map, the listeners, the proxy headers |
 | tests/lib/boot-test-lib.sh | tests/boot-test.bats (41 tests) | 100 percent (137/137) under kcov | the logic of the boot test: argument parsing, address discovery, deadlines, the HTTP and diff verdicts |
-| bin/keel-archive-check | tests/archive-check.bats (25 tests) | 100 percent (52/52) under kcov | the build time check: the archive copy in the build tree is the live archive, the source entry names the keyring through signed-by, nothing says trusted=yes, and the signature on the copied InRelease verifies against the staging key (tracker#7) |
+| bin/keel-archive-check | tests/archive-check.bats (27 tests) | 100 percent (54/54) under kcov | the build time check: the archive copy in the build tree is the live archive, the source entry names the keyring through signed-by, nothing says trusted=yes, and the signature on the copied InRelease verifies against the staging key (tracker#7) |
 | conf.d/zz-project-packages | tests/project-packages.bats (14 tests) | 100 percent (31/31) under kcov | the build time check that each project package is the candidate of the archive and a project build, and that the archive copy, its source entry and the staging keyring leave the image |
 | overlay/usr/lib/inithooks/bin/nodebb.py | none | 0 | dialog wrapper, only reached with a terminal attached |
 | conf.d/main | tests/boot-test.sh (build step) | integration only | build time script, 0004 pragmatic limits |
 | tests/boot-test.sh | itself | integration only | the thin main of the acceptance test: keel and LXC as root |
 
-Total over the five measured shell files: 99.66 percent (295/296) before the
-terminal test, 100 percent (296/296) with it, over 132 bats tests.
+Total over the five measured shell files: 99.66 percent (297/298) before the
+terminal test, 100 percent (298/298) with it, over 134 bats tests.
 
 `tests/coverage.sh` runs the whole bats suite under kcov, measures the
 library, the first boot hook, the boot test's own library and the two build
