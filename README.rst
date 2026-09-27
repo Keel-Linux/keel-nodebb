@@ -57,15 +57,25 @@ appliance.
 
 The project's own packages (inithooks, confconsole, keel) are listed in the
 plan and resolved, during the build only, from the build host's repository
-copied into the bootstrap as a ``[trusted=yes] file:///srv/keel-apt/repo``
-source (``Makefile``, ``bootstrap/post``).
+copied into the bootstrap as a ``file:///srv/keel-apt/repo`` source
+(``Makefile``, ``bootstrap/post``).
 
-That copy has to be the archive as it is at build time: fab stamps the
+The build verifies that archive the way an appliance verifies the release one.
+The public half of the staging key is installed into the build tree as
+``/etc/apt/keyrings/keel-staging-keyring.asc``, the source entry names it
+through ``signed-by``, and ``apt-get update`` runs with ``--error-on=any``, so
+a signature that cannot be checked fails the build. It used to say
+``[trusted=yes]``, which switches verification off: apt then printed
+``W: OpenPGP signature verification failed ... Missing key`` and installed the
+packages anyway (tracker#7).
+
+That copy also has to be the archive as it is at build time: fab stamps the
 bootstrap target, so a rebuild would otherwise reuse the copy an earlier build
 made and install packages the archive no longer offers.
-``bin/keel-archive-check`` compares the copied package index with the live one
-where the copy is made, and again on the tree that is about to be configured,
-and stops the build when they differ.
+``bin/keel-archive-check`` compares the copied package index with the live one,
+verifies the signature on the copied ``InRelease`` against that keyring,
+refuses any ``trusted=yes`` anywhere in the tree, and does all of it twice:
+where the copy is made, and again on the tree that is about to be configured.
 
 ``conf.d/zz-project-packages`` runs last. For each project package it checks
 that the archive offers exactly one version, that apt's candidate is that

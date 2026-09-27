@@ -13,16 +13,20 @@ setup() {
 
     export KEEL_APT_ROOT="$scratch/srv/keel-apt"
     export KEEL_STAGING_LIST="$scratch/apt/sources.list.d/keel-staging.list"
+    export KEEL_STAGING_KEYRING="$scratch/apt/keyrings/keel-staging-keyring.asc"
     export KEEL_SOURCES="$scratch/apt/sources.list.d/keel.sources"
     export KEEL_APT_LISTS="$scratch/apt/lists"
     export FIXTURES="$scratch/fixtures"
 
     INDEX="$KEEL_APT_ROOT/repo/dists/$DIST/main/binary-$ARCH/Packages"
     mkdir -p "$(dirname "$INDEX")" "$(dirname "$KEEL_STAGING_LIST")" \
+        "$(dirname "$KEEL_STAGING_KEYRING")" \
         "$KEEL_APT_LISTS" "$FIXTURES" "$scratch/bin"
     touch "$KEEL_APT_LISTS/keel_Packages"
 
-    echo "deb [trusted=yes] file://$KEEL_APT_ROOT/repo $DIST main" > "$KEEL_STAGING_LIST"
+    echo "deb [signed-by=$KEEL_STAGING_KEYRING] file://$KEEL_APT_ROOT/repo $DIST main" \
+        > "$KEEL_STAGING_LIST"
+    printf 'not a key, and this script never reads one\n' > "$KEEL_STAGING_KEYRING"
     printf 'Types: deb\nURIs: https://apt.keellinux.org\nEnabled: no\n' > "$KEEL_SOURCES"
 
     offer inithooks 2.3.6+keel4
@@ -90,6 +94,14 @@ installed() { printf 'version=%s\nstatus=%s\n' "$2" "$3" > "$FIXTURES/installed.
     [ ! -e "$KEEL_STAGING_LIST" ]
     [ -z "$(ls -A "$KEEL_APT_LISTS")" ]
     [ -f "$KEEL_SOURCES" ]
+}
+
+@test "the keyring that verified the staging archive is gone too" {
+    # The staging key signs whatever the build host produced, so it must not
+    # reach an installed appliance (tracker#7).
+    run "$SCRIPT"
+    [ "$status" -eq 0 ]
+    [ ! -e "$KEEL_STAGING_KEYRING" ]
 }
 
 @test "the recipe names no version: a new publication is simply the new candidate" {
@@ -170,7 +182,8 @@ installed() { printf 'version=%s\nstatus=%s\n' "$2" "$3" > "$FIXTURES/installed.
 }
 
 @test "a source list that names a distribution the archive has not got fails" {
-    echo "deb [trusted=yes] file://$KEEL_APT_ROOT/repo trixie-nowhere main" > "$KEEL_STAGING_LIST"
+    echo "deb [signed-by=$KEEL_STAGING_KEYRING] file://$KEEL_APT_ROOT/repo trixie-nowhere main" \
+        > "$KEEL_STAGING_LIST"
     run "$SCRIPT"
     [ "$status" -eq 1 ]
     [[ "$output" == *"no package index at"* ]]
