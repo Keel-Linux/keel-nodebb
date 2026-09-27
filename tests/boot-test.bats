@@ -241,6 +241,12 @@ never() { return 1; }
     [[ $output == *"lxc.net.0.type = veth"* ]]
 }
 
+@test "lxc_config: asks for the apparmor profile a unit with a namespace needs" {
+    output=$(bt_lxc_config keel-nodebb-boot-test /var/lib/lxc/keel-nodebb-boot-test/rootfs br0)
+    [[ $output == *"lxc.apparmor.profile = generated"* ]]
+    [[ $output == *"lxc.apparmor.allow_nesting = 1"* ]]
+}
+
 @test "spec_targets: both paths the first boot reads, under the rootfs" {
     output=$(bt_spec_targets /r)
     [ "$output" = $'/r/etc/keel/instance.yaml\n/r/etc/inithooks.yaml' ]

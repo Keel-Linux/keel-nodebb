@@ -216,11 +216,21 @@ bt_lxc_config() {
     # bt_lxc_config NAME ROOTFS BRIDGE: an LXC config for a plain rootfs
     # directory on a bridge; the address comes from the bridge (SLAAC or
     # DHCPv6), the spec declares managed_by: host.
+    #
+    # The apparmor pair is not decoration. Under the stock container profile
+    # a unit that asks systemd for a mount namespace is refused, and
+    # redis-server.service asks: it fails with status=226/NAMESPACE, so
+    # firstboot.d/40nodebb never reaches Redis and the forum never starts. A
+    # generated profile with nesting allowed is what a container running
+    # systemd needs, and it is what the appliance containers on the build
+    # host have carried all along.
     cat <<CONFIG
 lxc.uts.name = $1
 lxc.rootfs.path = dir:$2
 lxc.include = /usr/share/lxc/config/common.conf
 lxc.arch = amd64
+lxc.apparmor.profile = generated
+lxc.apparmor.allow_nesting = 1
 lxc.net.0.type = veth
 lxc.net.0.link = $3
 lxc.net.0.name = eth0
