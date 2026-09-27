@@ -1,0 +1,60 @@
+#!/bin/bash
+# The build reads the project's APT archive from a copy inside the build tree.
+# This checks that the copy is the archive as it is right now, byte for byte,
+# and stops the build when it is not.
+#
+# Why it exists: fab stamps the bootstrap target, so a second build of the same
+# product reuses the bootstrap the first one made, copy of the archive and all.
+# On 2026-09-26 "make clean" failed on a busy deck, the stamps survived, and
+# the rebuild installed the packages the archive had held that morning. The
+# build said nothing, because every step of it succeeded.
+#
+#   keel-archive-check SOURCE_REPO TREE DIST ARCH [LABEL]
+#
+# SOURCE_REPO  the live archive on the build host, e.g. /srv/keel-apt/repo
+# TREE         the build tree that carries the copy under srv/keel-apt/repo
+# DIST         the distribution, e.g. trixie-staging
+# ARCH         the Debian architecture, e.g. amd64
+# LABEL        name of the build step, for the messages (default: TREE)
+#
+# Exit 0 when the copy matches, 1 otherwise.
+set -eu
+
+usage() {
+    echo "usage: $(basename "$0") SOURCE_REPO TREE DIST ARCH [LABEL]" >&2
+    exit 1
+}
+
+[ $# -ge 4 ] && [ $# -le 5 ] || usage
+source_repo=$1
+tree=$2
+dist=$3
+arch=$4
+label=${5:-$2}
+
+for value in "$source_repo" "$tree" "$dist" "$arch"; do
+    [ -n "$value" ] || usage
+done
+
+index=dists/$dist/main/binary-$arch/Packages
+source_index=$source_repo/$index
+copy_index=$tree/srv/keel-apt/repo/$index
+
+fatal() {
+    echo "FATAL [archive-check $label]: $*" >&2
+    exit 1
+}
+
+[ -f "$source_index" ] || fatal "the archive has no index at $source_index"
+[ -f "$copy_index" ] || fatal "the build tree has no archive index at $copy_index"
+
+if ! cmp -s "$source_index" "$copy_index"; then
+    echo "FATAL [archive-check $label]: $copy_index is not $source_index" >&2
+    diff -u "$copy_index" "$source_index" >&2 || true
+    echo "The build would install the packages the archive offered when this" >&2
+    echo "bootstrap was made, not the ones it offers now. Remove the build" >&2
+    echo "directory (or at least build/stamps/bootstrap) and build again." >&2
+    exit 1
+fi
+
+echo "[archive-check $label] $copy_index is the archive at $source_index"

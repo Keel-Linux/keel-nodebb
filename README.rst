@@ -58,9 +58,24 @@ appliance.
 The project's own packages (inithooks, confconsole, keel) are listed in the
 plan and resolved, during the build only, from the build host's repository
 copied into the bootstrap as a ``[trusted=yes] file:///srv/keel-apt/repo``
-source (``Makefile``, ``bootstrap/post``). ``conf.d/main`` removes that source
-from the image and leaves ``/etc/apt/sources.list.d/keel.sources`` pointing at
-the future ``apt.keellinux.org``, disabled, with the origin pin in
+source (``Makefile``, ``bootstrap/post``).
+
+That copy has to be the archive as it is at build time: fab stamps the
+bootstrap target, so a rebuild would otherwise reuse the copy an earlier build
+made and install packages the archive no longer offers.
+``bin/keel-archive-check`` compares the copied package index with the live one
+where the copy is made, and again on the tree that is about to be configured,
+and stops the build when they differ.
+
+``conf.d/zz-project-packages`` runs last. For each project package it checks
+that the archive offers exactly one version, that apt's candidate is that
+version, that the version comes from the project archive rather than an
+upstream source, and that the installed package is that candidate and
+configured. No version is written down anywhere, so a rebuild made after a
+publication either carries the new versions or fails. It then removes the
+build time source from the image and leaves
+``/etc/apt/sources.list.d/keel.sources`` pointing at the future
+``apt.keellinux.org``, disabled, with the origin pin in
 ``/etc/apt/preferences.d/keel``.
 
 First boot

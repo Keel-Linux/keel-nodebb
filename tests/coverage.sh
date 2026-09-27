@@ -1,11 +1,12 @@
 #!/bin/bash
 # Line coverage of the shell this project writes, measured with kcov over
 # the bats suite (decision 0004). The measured files are the first boot
-# library, the first boot hook itself and the logic of the boot test; the 95
-# percent bar of decision 0003 applies to all three. Exits 1 below the
-# threshold, 2 when a tool is missing. tests/boot-test.sh is the thin main
-# that runs keel and LXC as root and is exercised by the container run in
-# test-appliance.yml, not measured here.
+# library, the first boot hook itself, the logic of the boot test, the build
+# time archive check and the build time package check; the 95 percent bar of
+# decision 0003 applies to all of them. Exits 1 below the threshold, 2 when a
+# tool is missing. tests/boot-test.sh is the thin main that runs keel and LXC
+# as root and is exercised by the container run in test-appliance.yml, not
+# measured here; conf.d/main needs a chroot, a network and half an hour.
 #
 #   tests/coverage.sh [THRESHOLD]
 set -euo pipefail
@@ -23,7 +24,7 @@ done
 report="${COVERAGE_DIR:-$(mktemp -d)}"
 # The include pattern is the whitelist, so no exclude pattern is needed; an
 # exclude of /tests/ would drop tests/lib/boot-test-lib.sh with it.
-kcov --include-pattern=/lib/nodebb.sh,/firstboot.d/40nodebb,/tests/lib/boot-test-lib.sh \
+kcov --include-pattern=/lib/nodebb.sh,/firstboot.d/40nodebb,/tests/lib/boot-test-lib.sh,/bin/keel-archive-check,/conf.d/zz-project-packages \
     "$report" bats "$here"
 
 json="$(find "$report" -mindepth 2 -maxdepth 2 -name coverage.json -not -path "*/kcov-merged/*" | head -1)"

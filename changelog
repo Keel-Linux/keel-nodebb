@@ -1,3 +1,24 @@
+turnkey-nodebb-19.0 (2) turnkey; urgency=low
+
+  * The build proves that the project archive it installs from is the live
+    one. bin/keel-archive-check compares the package index copied into the
+    build tree with the index of the archive on the build host and stops the
+    build when they differ: in bootstrap/post, where the copy is made, and
+    again on the tree that is about to be configured, because fab stamps the
+    bootstrap and a rebuild otherwise reuses the copy an earlier build left.
+
+  * conf.d/zz-project-packages replaces the assertion on a literal version,
+    which passed on a stale index and let a rebuild ship the previous
+    morning's inithooks and confconsole. For each of inithooks, confconsole
+    and keel it checks that the archive offers exactly one version, that
+    apt's candidate is that version, that the version is served by the
+    project archive and not by an upstream source, and that the installed
+    package is that candidate and configured. It then removes the build time
+    package source, which conf.d/main used to do. A rebuild made after a
+    publication now either carries the newly published versions or fails.
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Sun, 27 Sep 2026 00:45:00 +0000
+
 turnkey-nodebb-19.0 (1) turnkey; urgency=low
 
   * Initial release of the NodeBB appliance for Keel, compatible with

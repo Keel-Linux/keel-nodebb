@@ -1,0 +1,80 @@
+#!/bin/bash -e
+# The project's own packages (inithooks, confconsole, keel) are installed and
+# upgraded by conf.d/main from the build host's staging archive, copied into
+# the build tree. This runs last: it proves that what is installed is what
+# that archive offers, and then takes the archive away, because no appliance
+# ships the build time package source.
+#
+# Nothing here names a version. A literal passes whenever the build happens to
+# read a stale index, which is how the forum layer of 2026-09-26 shipped the
+# previous morning's inithooks and confconsole with a green build. For each
+# package:
+#
+#   1. the archive offers exactly one version of it
+#   2. apt's candidate is that version, so the project archive won over the
+#      upstream one
+#   3. that version is served by the project archive and not by an upstream
+#      source, so the installed package is a project build
+#   4. the installed version is that candidate, and dpkg has it configured
+#
+# So a rebuild made after a publication either carries the newly published
+# versions or fails here.
+#
+# The paths are overridable so tests/project-packages.bats can run this
+# against a scratch tree, the same way the first boot hook is tested.
+
+KEEL_APT_ROOT="${KEEL_APT_ROOT:-/srv/keel-apt}"
+KEEL_APT_REPO="$KEEL_APT_ROOT/repo"
+KEEL_STAGING_LIST="${KEEL_STAGING_LIST:-/etc/apt/sources.list.d/keel-staging.list}"
+KEEL_SOURCES="${KEEL_SOURCES:-/etc/apt/sources.list.d/keel.sources}"
+KEEL_APT_LISTS="${KEEL_APT_LISTS:-/var/lib/apt/lists}"
+KEEL_PROJECT_PACKAGES="${KEEL_PROJECT_PACKAGES:-inithooks confconsole keel}"
+
+fatal() {
+    echo "fatal [zz-project-packages]: $*" >&2
+    exit 1
+}
+
+# the distribution is the one the build wrote into the source list, so this
+# script and the Makefile cannot drift apart
+DIST_OF_LIST='$1 == "deb" { for (i = 2; i <= NF; i++) if ($i ~ /^file:/) { print $(i + 1); exit } }'
+VERSIONS_OF='$1 == "Package:" { name = $2 } $1 == "Version:" && name == want { print $2 }'
+
+dist=$(awk "$DIST_OF_LIST" "$KEEL_STAGING_LIST" 2>/dev/null || true)
+[ -n "$dist" ] || fatal "no file: source in $KEEL_STAGING_LIST: this build had no project archive"
+
+index=$KEEL_APT_REPO/dists/$dist/main/binary-$(dpkg --print-architecture)/Packages
+[ -f "$index" ] || fatal "no package index at $index"
+
+for package in $KEEL_PROJECT_PACKAGES; do
+    mapfile -t offered < <(awk -v want="$package" "$VERSIONS_OF" "$index")
+    [ "${#offered[@]}" -eq 1 ] \
+        || fatal "$package: $index offers ${#offered[@]} versions (${offered[*]:-none}), expected one"
+
+    candidate=$(apt-cache policy "$package" | awk '$1 == "Candidate:" { print $2 }')
+    [ "$candidate" = "${offered[0]}" ] \
+        || fatal "$package: apt would install '$candidate' and the project archive offers '${offered[0]}': the index this build read is not the archive"
+
+    apt-cache madison "$package" \
+        | awk -F' *\\| *' -v version="$candidate" '$2 == version { print $3 }' \
+        | grep -qF "file:$KEEL_APT_REPO" \
+        || fatal "$package $candidate does not come from $KEEL_APT_REPO: it is an upstream build"
+
+    installed=$(dpkg-query -W -f '${Version}' "$package" 2>/dev/null) \
+        || fatal "$package is not installed"
+    [ "$installed" = "$candidate" ] \
+        || fatal "$package $installed is installed and the project archive offers $candidate: this build read a stale index"
+
+    status=$(dpkg-query -W -f '${Status}' "$package")
+    [ "$status" = "install ok installed" ] \
+        || fatal "$package is '$status', not 'install ok installed'"
+
+    echo "$package $installed, the candidate of the project archive"
+done
+
+# the build time package source is not for appliances: remove it, and keep the
+# documented, disabled entry for the future signed repository (overlay)
+rm -f "$KEEL_STAGING_LIST"
+rm -rf "$KEEL_APT_ROOT"
+rm -rf "${KEEL_APT_LISTS:?}"/*
+grep -q '^Enabled: no' "$KEEL_SOURCES"

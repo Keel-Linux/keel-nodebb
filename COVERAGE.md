@@ -12,18 +12,20 @@ acceptance test of an appliance recipe, docs/org-plan.md section 1).
 | overlay/usr/lib/inithooks/firstboot.d/40nodebb | tests/hook.bats (15 tests) | 96.97 percent (32/33) under kcov | the one uncovered line is inside the dialog loop, which needs a terminal |
 | overlay/etc/nginx/* | tests/nginx.bats (12 tests) | not executable | asserted as content: the geo variable, the map, the listeners, the proxy headers |
 | tests/lib/boot-test-lib.sh | tests/boot-test.bats (34 tests) | 100 percent (124/124) under kcov | the logic of the boot test: argument parsing, address discovery, deadlines, the HTTP and diff verdicts |
+| bin/keel-archive-check | tests/archive-check.bats (8 tests) | 100 percent (26/26) under kcov | the build time check that the archive copy in the build tree is the live archive |
+| conf.d/zz-project-packages | tests/project-packages.bats (13 tests) | 100 percent (29/29) under kcov | the build time check that each project package is the candidate of the archive, and a project build |
 | overlay/usr/lib/inithooks/bin/nodebb.py | none | 0 | dialog wrapper, only reached with a terminal attached |
 | conf.d/main | tests/boot-test.sh (build step) | integration only | build time script, 0004 pragmatic limits |
 | tests/boot-test.sh | itself | integration only | the thin main of the acceptance test: keel and LXC as root |
 
-Total over the three measured shell files: 99.00 percent (199/201) before the
-terminal test, 99.50 percent (200/201) with it.
+Total over the five measured shell files: 99.22 percent (254/256) before the
+terminal test, 99.61 percent (255/256) with it.
 
 `tests/coverage.sh` runs the whole bats suite under kcov, measures the
-library, the first boot hook and the boot test's own library, and fails below
-95 percent; the workflow runs it on every pull request through the
-organization's `test-shell.yml` and produces the required check
-`tests / coverage` on `main`.
+library, the first boot hook, the boot test's own library and the two build
+time checks, and fails below 95 percent; the workflow runs it on every pull
+request through the organization's `test-shell.yml` and produces the required
+check `tests / coverage` on `main`.
 
 The appliance test runs through the organization's `test-appliance.yml` on the
 self-hosted `keel-lxc` runner, which fetches the published layer from
@@ -57,6 +59,23 @@ call and its arguments, the `config.json` patch, the rendering of
 check, the service calls, the asset build switch, both idempotence paths, the
 refusal of an address nginx would reject, the empty trusted proxy, the domain
 fallback, the missing password with and without a terminal.
+
+### What the build time checks cover
+
+The two build time scripts also run for real, against scratch trees, with
+`dpkg`, `dpkg-query` and `apt-cache` as PATH stubs driven by fixture files, so
+no test needs a chroot, apt or root. `bin/keel-archive-check`: a faithful
+copy, a copy of an older archive (the message names the version that changed),
+a missing copy, a missing source index and the argument errors.
+`conf.d/zz-project-packages`: the three packages at the versions the archive
+offers, the same three at versions nobody has published yet (the script names
+no version, so that passes unchanged), yesterday's package against today's
+archive, a candidate that is not what the archive offers, an upstream build of
+the same version, a package the archive does not offer, an archive that offers
+two of them, a package that is not installed, a half configured one, a build
+with no project archive in its source list, a distribution the archive has not
+got, and the removal of the build time source with the disabled
+`apt.keellinux.org` entry left in place.
 
 ## Plan
 
