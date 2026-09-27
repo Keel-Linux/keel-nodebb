@@ -60,20 +60,32 @@ place: the first boot completes through `98finalize`, `[40nodebb]
 successfully completed`, port 80 answers 307 to https and port 443 answers
 200 with `<title>Home | NodeBB</title>` over IPv6.
 
-State of that check on 2026-09-26: **failing on a defect of the published
-layer, so it is not a required status yet.** The `nodebb` layer on
-the mirror (sha256 `40e3f4da`) carries the build time wrappers
-`/usr/local/bin/systemctl` and `/usr/local/bin/service`, which call each other
-in a loop outside a build chroot, so the first boot never gets past
-`10regen-sshkeys`. The cause is the one pull request 1 fixed: the conffile
-prompt failed the `root.patched` target, so fab never reached the step that
-removes the build overlays, and `bt-layer` packed and published the tree
-anyway (buildtasks issue 6). The recipe is fixed; the layer on the mirror is
-not, because it has not been rebuilt. Once it is, this check goes green and is
-added to the protection rule of `main`. Measured
-before the failure, on the runner: `keel pull` of the three layers (598 MB)
-7 s, `keel verify` exit 8, assemble 43 s, container started with a global
-IPv6 address in 5 s.
+State of that check on 2026-09-27: **green.** Run 36290439227 on `main`,
+against the chain published that morning:
+
+    keel verify exited 9: every layer matches
+    boot-test: assembling nodebb from https://mirror.keellinux.org/layers
+    boot-test: container address fc42:...:9e24
+    boot-test: first boot finished
+    boot-test: http://[fc42:...:9e24]/ answered 307 https://[fc42:...:9e24]/
+    boot-test: the forum answered 200, title 'Home | NodeBB'
+    keel diff: no drift
+    boot-test: nodebb boot test passed
+
+Measured on the runner: assemble 33 s, a global IPv6 address 5 s after the
+start, first boot finished 50 s later, the whole job under two minutes once
+the layers were pulled. It is a candidate for the protection rule of `main`
+now that it passes.
+
+Four defects had to go first, each hidden by the one before it: the build
+time `systemctl` and `service` wrappers that stopped the first boot at
+`10regen-sshkeys` (pull request 1, and the layer rebuilt); the container's
+missing apparmor profile, which kept `redis-server.service` from starting
+with `status=226/NAMESPACE` (pull request 8); the unsubstituted
+`ssl_ciphers 'ZZ_SSL_CIPHERS'`, which stopped nginx (buildtasks
+`layer_needs_ssl_ciphers`, and the layer rebuilt again); and the first boot
+writing to a `/dev/tty1` nobody reads, which blocked `./nodebb setup` in
+`n_tty_write` forever (pull request 9).
 
 ### What the hook tests cover
 

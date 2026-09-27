@@ -94,18 +94,17 @@ What it does, in order:
 Measured on the runner `keel-lxc-1` on 2026-09-26: `keel pull` of the three
 layers (598 MB) 7 s from the mirror on the same host, assemble 43 s.
 
-### Known failure of the published layer
+### The published layer, measured
 
-The run of 2026-09-26 does not reach step 7: the first boot stops in
-`10regen-sshkeys`. The `nodebb` layer on
-the mirror (sha256 `40e3f4da`) carries the build time wrappers
-`/usr/local/bin/systemctl` and `/usr/local/bin/service`, which call each other
-in a loop outside a build chroot, so the first boot never gets past
-`10regen-sshkeys`. The cause is the one pull request 1 fixed: the conffile
-prompt failed the `root.patched` target, so fab never reached the step that
-removes the build overlays, and `bt-layer` packed and published the tree
-anyway (buildtasks issue 6). The recipe is fixed; the layer on the mirror is
-not, because it has not been rebuilt. Once it is, this check goes green and is
-added to the protection rule of `main`. Until then this test fails on the
-mirror's `nodebb`, which is the gate reporting a real defect rather than a
-problem with the test.
+Run 36290439227 on `main`, 2026-09-27, against the chain on the mirror:
+`keel verify` exit 9 (every layer matches), assemble 33 s, a global IPv6
+address 5 s after the start, first boot finished 50 s later, port 80
+answering 307 to https, port 443 answering 200 with the title
+`Home | NodeBB`, and `keel diff` reporting no drift. The boot test passes.
+
+Earlier runs did not get that far, and each failure hid the next one: the
+build time `systemctl` and `service` wrappers stopped the first boot at
+`10regen-sshkeys`; then `redis-server.service` would not start in the
+container without an apparmor profile; then nginx refused the unsubstituted
+`ssl_ciphers 'ZZ_SSL_CIPHERS'`; then `./nodebb setup` blocked writing to a
+`/dev/tty1` nobody reads. `COVERAGE.md` records which change fixed which.
