@@ -11,15 +11,15 @@ acceptance test of an appliance recipe, docs/org-plan.md section 1).
 | overlay/usr/lib/inithooks/lib/nodebb.sh | tests/nodebb.bats (25 tests) | 100 percent (43/43) under kcov | every function and every branch |
 | overlay/usr/lib/inithooks/firstboot.d/40nodebb | tests/hook.bats (15 tests) | 96.97 percent (32/33) under kcov | the one uncovered line is inside the dialog loop, which needs a terminal |
 | overlay/etc/nginx/* | tests/nginx.bats (12 tests) | not executable | asserted as content: the geo variable, the map, the listeners, the proxy headers |
-| tests/lib/boot-test-lib.sh | tests/boot-test.bats (34 tests) | 100 percent (124/124) under kcov | the logic of the boot test: argument parsing, address discovery, deadlines, the HTTP and diff verdicts |
+| tests/lib/boot-test-lib.sh | tests/boot-test.bats (41 tests) | 100 percent (137/137) under kcov | the logic of the boot test: argument parsing, address discovery, deadlines, the HTTP and diff verdicts |
 | bin/keel-archive-check | tests/archive-check.bats (8 tests) | 100 percent (26/26) under kcov | the build time check that the archive copy in the build tree is the live archive |
 | conf.d/zz-project-packages | tests/project-packages.bats (13 tests) | 100 percent (29/29) under kcov | the build time check that each project package is the candidate of the archive, and a project build |
 | overlay/usr/lib/inithooks/bin/nodebb.py | none | 0 | dialog wrapper, only reached with a terminal attached |
 | conf.d/main | tests/boot-test.sh (build step) | integration only | build time script, 0004 pragmatic limits |
 | tests/boot-test.sh | itself | integration only | the thin main of the acceptance test: keel and LXC as root |
 
-Total over the five measured shell files: 99.22 percent (254/256) before the
-terminal test, 99.61 percent (255/256) with it.
+Total over the five measured shell files: 99.63 percent (267/268) before the
+terminal test, 100 percent (268/268) with it.
 
 `tests/coverage.sh` runs the whole bats suite under kcov, measures the
 library, the first boot hook, the boot test's own library and the two build
@@ -33,6 +33,32 @@ self-hosted `keel-lxc` runner, which fetches the published layer from
 LXC and runs `tests/boot-test.sh` against it. Nothing is built there: the
 runner has no fab, deck or buildtasks. That job produces the check
 `appliance / build-and-boot`.
+
+### What the gate found once the layer booted (2026-09-27)
+
+With the republished chain the gate pulls, verifies, assembles and boots, and
+the whole hook chain runs. Three defects surfaced behind the one that had been
+hiding them, and all three are fixed:
+
+1. `redis-server.service` failed with `status=226/NAMESPACE`: the container
+   config asked for no apparmor profile, so systemd could not give the unit a
+   mount namespace.
+2. nginx refused to start on `ssl_ciphers 'ZZ_SSL_CIPHERS'`, an unsubstituted
+   mark. Fixed in buildtasks (`layer_needs_ssl_ciphers` now scans the child's
+   overlays) and the layer was rebuilt.
+3. `firstboot.d/40nodebb` never returned. The layer ships the plain appliance
+   `inithooks.service`, which runs the hooks with `StandardOutput=tty` on
+   `/dev/tty1`; a container image gets a unit that logs to syslog and the
+   console instead. Nothing reads tty1 in a container nobody has attached to,
+   so `./nodebb setup` filled the terminal buffer and blocked in
+   `n_tty_write`. `bt_mark_container` now does what a container build does:
+   the marker, `REDIRECT_OUTPUT=true`, and a drop-in that puts the unit's
+   output on the journal.
+
+Measured on the build host against the published chain, with all three in
+place: the first boot completes through `98finalize`, `[40nodebb]
+successfully completed`, port 80 answers 307 to https and port 443 answers
+200 with `<title>Home | NodeBB</title>` over IPv6.
 
 State of that check on 2026-09-26: **failing on a defect of the published
 layer, so it is not a required status yet.** The `nodebb` layer on

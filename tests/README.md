@@ -64,9 +64,16 @@ What it does, in order:
 
 1. `keel pull` and `keel assemble` the chain (core, nodejs-nginx, nodebb)
    into `<lxc-path>/<name>/rootfs`.
-2. Creates `var/lib/turnkey-info/inithooks.service/lxc` in the rootfs, the
-   marker `bt-container` writes and the one `keel inspect` reads to call the
-   machine a container (`network.managed_by: host`).
+2. Marks the tree as a container build, which is what
+   `bt_mark_container` does and what buildtasks' `patches/container/conf`
+   does for a real container image: the marker
+   `var/lib/turnkey-info/inithooks.service/lxc` that `keel inspect` reads to
+   call the machine a container (`network.managed_by: host`),
+   `REDIRECT_OUTPUT=true` in `etc/default/inithooks`, and a drop-in that
+   gives `inithooks.service` `StandardOutput=journal`. Without the last two
+   the hooks write to `/dev/tty1`, which nobody reads in a container, and the
+   first hook that prints more than the terminal buffer holds blocks there
+   forever.
 3. Writes a random `root_password` and `app_password` under
    `etc/keel/secrets` (mode 0600) and installs `tests/instance.yaml` at
    `etc/keel/instance.yaml` and `etc/inithooks.yaml`.

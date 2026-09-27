@@ -26,6 +26,12 @@ BT_SECRETS="root_password app_password"
 # the final name is a maintainer decision (brief section 11), so the test
 # installs the same file at both until then.
 BT_SPEC_PATHS="etc/keel/instance.yaml etc/inithooks.yaml"
+# What marks the tree as a container build, relative to the rootfs: the
+# marker file bt-container writes and the inithooks defaults whose
+# REDIRECT_OUTPUT it sets. See bt_mark_container.
+BT_CONTAINER_MARKER="var/lib/turnkey-info/inithooks.service/lxc"
+BT_INITHOOKS_DEFAULT="etc/default/inithooks"
+BT_INITHOOKS_DROPIN="etc/systemd/system/inithooks.service.d/container.conf"
 
 bt_usage() {
     cat <<USAGE
@@ -237,6 +243,47 @@ lxc.net.0.name = eth0
 lxc.net.0.flags = up
 lxc.start.auto = 0
 CONFIG
+}
+
+bt_mark_container() {
+    # bt_mark_container ROOTFS: make the tree look like the container build
+    # buildtasks produces, which is two things, both from its
+    # patches/container/conf:
+    #
+    #   the marker under /var/lib/turnkey-info, which inithooks' unit
+    #   conditions read and which `keel inspect` reads to call the machine a
+    #   container (network.managed_by: host), and
+    #
+    #   REDIRECT_OUTPUT=true in /etc/default/inithooks, which sends first
+    #   boot output to the log with a tail on the active console instead of
+    #   writing it straight to tty1.
+    #
+    # and a drop-in that keeps the first boot off tty1.
+    #
+    # The last two are not cosmetic. The layer ships the plain appliance
+    # inithooks.service, which runs the hooks with StandardOutput=tty on
+    # /dev/tty1; the unit a container image gets instead logs to syslog and
+    # the console. Nothing reads tty1 in a container nobody has attached to,
+    # so a hook that prints more than the terminal buffer holds blocks in
+    # the write and never returns. `./nodebb setup` prints well past that:
+    # it hung firstboot.d/40nodebb forever with the node process asleep in
+    # n_tty_write, and the gate saw a first boot that never finished.
+    local rootfs=$1 defaults=$1/$BT_INITHOOKS_DEFAULT
+    install -D -m 0644 /dev/null "$rootfs/$BT_CONTAINER_MARKER" || return 1
+    if [ ! -f "$defaults" ]; then
+        echo "boot-test: $defaults is not in the rootfs" >&2
+        return 1
+    fi
+    sed -i '/REDIRECT_OUTPUT/ s/=.*/=true/' "$defaults" || return 1
+    if ! grep -q '^REDIRECT_OUTPUT=true$' "$defaults"; then
+        echo "boot-test: $defaults declares no REDIRECT_OUTPUT to set" >&2
+        return 1
+    fi
+    install -D -m 0644 /dev/stdin "$rootfs/$BT_INITHOOKS_DROPIN" <<DROPIN || return 1
+[Service]
+StandardOutput=journal
+StandardError=journal
+DROPIN
 }
 
 bt_spec_targets() {
