@@ -100,16 +100,8 @@ apt-get install -y --only-upgrade \
     -o Dpkg::Options::=--force-confdef \
     -o Dpkg::Options::=--force-confold \
     inithooks confconsole
-[[ $(dpkg-query -W -f '${Version}\n' inithooks confconsole | grep -c '+keel1$') -eq 2 ]]
-
-# a half configured package keeps its new version, so check the state too
-[[ $(dpkg-query -W -f '${Status}\n' inithooks confconsole keel \
-    | grep -c '^install ok installed$') -eq 3 ]]
 dpkg-query -W -f '${Package} ${Version} ${Status}\n' inithooks confconsole keel
 
-# the build time package source is not for appliances: remove it, keep the
-# documented, disabled entry for the future signed repository (overlay)
-rm -f /etc/apt/sources.list.d/keel-staging.list
-rm -rf /srv/keel-apt
-rm -rf /var/lib/apt/lists/*
-grep -q '^Enabled: no' /etc/apt/sources.list.d/keel.sources
+# conf.d/zz-project-packages runs after this script: it checks these three
+# against the archive the build read and then removes the build time source.
+# No version is asserted here, because a literal one passes on a stale index.

@@ -23,6 +23,13 @@ matches the spec.
 - `nodebb.bats`: unit tests of
   `overlay/usr/lib/inithooks/lib/nodebb.sh`, the logic behind the first boot
   hook `40nodebb`.
+- `archive-check.bats`: unit tests of `bin/keel-archive-check`, which the
+  Makefile runs twice per build so that the copy of the project archive inside
+  the build tree is the archive as it is at build time.
+- `project-packages.bats`: unit tests of `conf.d/zz-project-packages`, the
+  last conf script, which checks each project package against that archive.
+  `dpkg`, `dpkg-query` and `apt-cache` are PATH stubs reading fixtures, so no
+  chroot and no apt are needed.
 - `coverage.sh`: runs each bats file under kcov and fails when any measured
   library is below `COVERAGE_THRESHOLD` (default 95).
 - `instance.yaml`: the spec the test container boots from. Not the forum:
