@@ -4,6 +4,8 @@
 # default and the rendered file must not drift apart, since the rendered one
 # replaces the other and only the rendered one is exercised in production).
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     ROOT="$BATS_TEST_DIRNAME/.."
     LIB="$ROOT/overlay/usr/lib/inithooks/lib/nodebb.sh"
@@ -16,8 +18,8 @@ setup() {
 
 @test "the shipped conf.d default trusts nobody" {
     grep -q '^    default 0;$' "$DEFAULT_CONF"
-    ! grep -q ' 1;$' "$DEFAULT_CONF"
-    ! grep -q '^set_real_ip_from' "$DEFAULT_CONF"
+    run ! grep -q ' 1;$' "$DEFAULT_CONF"
+    run ! grep -q '^set_real_ip_from' "$DEFAULT_CONF"
 }
 
 @test "the shipped conf.d default uses the same geo variable as the rendered file" {
@@ -26,8 +28,8 @@ setup() {
 }
 
 @test "the shipped conf.d default never matches geo on remote_addr" {
-    ! grep -q '^geo \$remote_addr' "$DEFAULT_CONF"
-    ! grep -q '^geo \$nodebb_trusted_proxy' "$DEFAULT_CONF"
+    run ! grep -q '^geo \$remote_addr' "$DEFAULT_CONF"
+    run ! grep -q '^geo \$nodebb_trusted_proxy' "$DEFAULT_CONF"
 }
 
 @test "the shipped conf.d default carries the same map as the rendered file" {
@@ -61,7 +63,7 @@ setup() {
 
 @test "the shared proxy directives forward the trusted scheme, not the raw one" {
     grep -q '^proxy_set_header X-Forwarded-Proto \$nodebb_scheme;$' "$INCLUDE"
-    ! grep -q 'X-Forwarded-Proto \$scheme;' "$INCLUDE"
+    run ! grep -q 'X-Forwarded-Proto \$scheme;' "$INCLUDE"
 }
 
 @test "the shared proxy directives carry the websocket upgrade headers" {
