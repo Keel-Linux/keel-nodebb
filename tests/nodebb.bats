@@ -3,6 +3,8 @@
 # scratch directories for every path, a PATH stub for redis-cli, python3
 # real (it only encodes and decodes JSON here).
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     LIB="$BATS_TEST_DIRNAME/../overlay/usr/lib/inithooks/lib/nodebb.sh"
     # shellcheck source=../overlay/usr/lib/inithooks/lib/nodebb.sh
@@ -14,7 +16,7 @@ setup() {
 @test "needs_setup is true without config.json and false with it" {
     nodebb_needs_setup "$scratch"
     touch "$scratch/config.json"
-    ! nodebb_needs_setup "$scratch"
+    run ! nodebb_needs_setup "$scratch"
 }
 
 @test "first_value skips empty values and the DEFAULT placeholder" {
@@ -114,8 +116,8 @@ assert c == {"url": "https://forum.example.org", "secret": "s",
     nodebb_valid_proxy 2001:db8::13
     nodebb_valid_proxy 2001:db8::/64
     nodebb_valid_proxy 192.0.2.7
-    ! nodebb_valid_proxy "2001:db8::13; }"
-    ! nodebb_valid_proxy "hello"
+    run ! nodebb_valid_proxy "2001:db8::13; }"
+    run ! nodebb_valid_proxy "hello"
 }
 
 @test "proxy_conf lists the trusted proxy from APP_TRUSTED_PROXY in geo" {
@@ -128,12 +130,14 @@ assert c == {"url": "https://forum.example.org", "secret": "s",
 @test "proxy_conf matches geo on realip_remote_addr, never on remote_addr" {
     run nodebb_proxy_conf 2001:db8::13
     [ "$status" -eq 0 ]
-    grep -q '^geo \$realip_remote_addr \$nodebb_trusted_proxy {$' <<< "$output"
+    # every `run` below replaces $output, so keep the rendered file first
+    local conf=$output
+    grep -q '^geo \$realip_remote_addr \$nodebb_trusted_proxy {$' <<< "$conf"
     # the regression this guards: set_real_ip_from below has already
     # rewritten $remote_addr by the time geo is evaluated, so a geo block on
     # $remote_addr never matches the proxy and port 80 answers 307 forever
-    ! grep -q '^geo \$remote_addr' <<< "$output"
-    ! grep -q '^geo \$nodebb_trusted_proxy' <<< "$output"
+    run ! grep -q '^geo \$remote_addr' <<< "$conf"
+    run ! grep -q '^geo \$nodebb_trusted_proxy' <<< "$conf"
 }
 
 @test "proxy_conf keeps the geo variable the same when nobody is trusted" {
@@ -174,9 +178,13 @@ assert c == {"url": "https://forum.example.org", "secret": "s",
 @test "proxy_conf without an address trusts nobody" {
     run nodebb_proxy_conf ""
     [ "$status" -eq 0 ]
-    ! grep -q ' 1;$' <<< "$output"
-    ! grep -q set_real_ip_from <<< "$output"
-    grep -q 'default 0;' <<< "$output"
+    # every `run` below replaces $output, so keep the rendered file first
+    local conf=$output
+    run ! grep -q ' 1;$' <<< "$conf"
+    # anchored: the comment this file carries names the directive, so an
+    # unanchored match finds the explanation and never the directive
+    run ! grep -q '^set_real_ip_from' <<< "$conf"
+    grep -q '^    default 0;$' <<< "$conf"
 }
 
 @test "proxy_conf rejects an address nginx would not accept" {

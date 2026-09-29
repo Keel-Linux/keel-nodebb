@@ -4,6 +4,8 @@
 # the system (systemctl, redis-cli, nginx, runuser, chown) is a PATH stub
 # that records its arguments. Nothing here needs root or a network.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     ROOT="$BATS_TEST_DIRNAME/.."
     HOOK="$ROOT/overlay/usr/lib/inithooks/firstboot.d/40nodebb"
@@ -115,7 +117,7 @@ assert c["admin:username"] == "admin", c' "$NODEBB_DIR/config.json"
     write_conf
     run "$HOOK"
     [ "$status" -eq 0 ]
-    ! grep -q -- '--skip-build' "$CALLS"
+    run ! grep -q -- '--skip-build' "$CALLS"
 }
 
 @test "the hook is idempotent: a second run changes nothing" {
@@ -157,7 +159,7 @@ assert c["admin:username"] == "admin", c' "$NODEBB_DIR/config.json"
     run "$HOOK"
     [ "$status" -eq 0 ]
     grep -q '^geo \$realip_remote_addr \$nodebb_trusted_proxy {$' "$NGINX_PROXY_CONF"
-    ! grep -q '^set_real_ip_from' "$NGINX_PROXY_CONF"
+    run ! grep -q '^set_real_ip_from' "$NGINX_PROXY_CONF"
 }
 
 @test "the hook falls back to the hostname when no domain is declared" {
