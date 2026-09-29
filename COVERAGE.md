@@ -32,7 +32,11 @@ self-hosted `keel-lxc` runner, which fetches the published layer from
 `https://mirror.keellinux.org/layers`, verifies it, assembles it, boots it in
 LXC and runs `tests/boot-test.sh` against it. Nothing is built there: the
 runner has no fab, deck or buildtasks. That job produces the check
-`appliance / build-and-boot`.
+`appliance / boot-published-layer`, and the name is the point: what boots is
+the layer the mirror publishes and not this branch, so a pull request that
+changes the recipe is not exercised by it. A layer that has never been
+published fails it rather than passing it (keel-linux/.github pull request
+12).
 
 ### What the gate found once the layer booted (2026-09-27)
 
@@ -118,7 +122,8 @@ got, and the removal of the build time source with the disabled
 ## Plan
 
 - Rebuild and publish `nodebb` now that pull request 1 fixed the conffile
-  prompt, then require `appliance / build-and-boot` on `main`. Separately,
+  prompt, then require `appliance / boot-published-layer` on `main`.
+  Separately,
   `bt-layer` should refuse to pack a build whose `make` failed (buildtasks
   issue 6), so a broken layer cannot reach the mirror again.
 - Keep every decision in lib/nodebb.sh so the hook stays a thin caller.
