@@ -14,7 +14,7 @@ acceptance test of an appliance recipe, docs/org-plan.md section 1).
 | tests/lib/boot-test-lib.sh | tests/boot-test.bats (41 tests) | 100 percent (137/137) under kcov | the logic of the boot test: argument parsing, address discovery, deadlines, the HTTP and diff verdicts |
 | bin/keel-archive-check | tests/archive-check.bats (27 tests) | 100 percent (54/54) under kcov | the build time check: the archive copy in the build tree is the live archive, the source entry names the keyring through signed-by, nothing says trusted=yes, and the signature on the copied InRelease verifies against the staging key (tracker#7) |
 | conf.d/zz-project-packages | tests/project-packages.bats (14 tests) | 100 percent (31/31) under kcov | the build time check that each project package is the candidate of the archive and a project build, and that the archive copy, its source entry and the staging keyring leave the image |
-| overlay/usr/lib/inithooks/bin/nodebb.py | none | 0 | dialog wrapper, only reached with a terminal attached |
+| overlay/usr/lib/inithooks/bin/nodebb.py | tests/dialog.bats (3 tests) | not measured (kcov measures the shell) | dialog wrapper, run as the hook runs it inside a pseudo terminal: the answer reaches the hook and the box is drawn on the terminal |
 | conf.d/main | tests/boot-test.sh (build step) | integration only | build time script, 0004 pragmatic limits |
 | tests/boot-test.sh | itself | integration only | the thin main of the acceptance test: keel and LXC as root |
 
