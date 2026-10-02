@@ -1,4 +1,4 @@
-turnkey-nodebb-19.0 (4) turnkey; urgency=low
+turnkey-nodebb-19.0 (5) turnkey; urgency=low
 
   * The overlay no longer ships /etc/apt/sources.list.d/keel.sources
     (apt.keellinux.org, disabled) or /etc/apt/preferences.d/keel (the Keel
@@ -12,6 +12,10 @@ turnkey-nodebb-19.0 (4) turnkey; urgency=low
     still names the build time archive, in place of the check that
     keel.sources was disabled. tests/project-packages.bats (16 tests, 100
     percent) and tests/apt-files.bats check it.
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 17:00:00 +0000
+
+turnkey-nodebb-19.0 (4) turnkey; urgency=low
 
   * bin/keel-archive-check refuses a trusted=yes on the project archive rather
     than on every apt source in the build tree. The captured pool of decision
