@@ -1,5 +1,18 @@
 turnkey-nodebb-19.0 (4) turnkey; urgency=low
 
+  * The overlay no longer ships /etc/apt/sources.list.d/keel.sources
+    (apt.keellinux.org, disabled) or /etc/apt/preferences.d/keel (the Keel
+    origin at 1001). At 1001 apt downgraded every package newer than the
+    archive's (tracker#23), and both files, at the paths common uses, would
+    override the source and the 990 pin Keel-Linux/common#30 ships. The
+    build time archive still wins over TurnKey's 999 pin during the build:
+    conf.d/main pins it by its Label, l=Keel Linux staging, at 1001 before
+    the upgrade, and conf.d/zz-project-packages removes that pin with the
+    build time source, then fails if any apt source or pin of the image
+    still names the build time archive, in place of the check that
+    keel.sources was disabled. tests/project-packages.bats (16 tests, 100
+    percent) and tests/apt-files.bats check it.
+
   * bin/keel-archive-check refuses a trusted=yes on the project archive rather
     than on every apt source in the build tree. The captured pool of decision
     0012 sets Trusted: yes on purpose, for a file: index generated on this

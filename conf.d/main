@@ -95,6 +95,16 @@ systemctl enable nodebb
 # what to do with it. The conf script runs with stdin closed, dpkg reads end
 # of file at the prompt and leaves confconsole "install ok unpacked", which
 # fails this script. Keep the overlay's file without asking.
+#
+# The build time archive has to win over every other source here: a
+# bootstrap from before Keel-Linux/common#30 pins TurnKey's archive at 999.
+# It used to win through the overlay's /etc/apt/preferences.d/keel at 1001,
+# which then shipped in the image and downgraded every package newer than the
+# archive's (tracker#23). This pin names the staging distribution by its
+# Label, exists only during the build and goes with the build time source
+# (conf.d/zz-project-packages).
+printf 'Package: *\nPin: release l=Keel Linux staging\nPin-Priority: 1001\n' \
+    > /etc/apt/preferences.d/keel-staging
 export DEBIAN_FRONTEND=noninteractive
 apt-get install -y --only-upgrade \
     -o Dpkg::Options::=--force-confdef \

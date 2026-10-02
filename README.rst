@@ -83,10 +83,11 @@ version, that the version comes from the project archive rather than an
 upstream source, and that the installed package is that candidate and
 configured. No version is written down anywhere, so a rebuild made after a
 publication either carries the new versions or fails. It then removes the
-build time source from the image and leaves
-``/etc/apt/sources.list.d/keel.sources`` pointing at the future
-``apt.keellinux.org``, disabled, with the origin pin in
-``/etc/apt/preferences.d/keel``.
+build time source and the build-only pin ``conf.d/main`` gave it (the
+staging Label at 1001, so it wins over TurnKey's 999 pin during the
+upgrade), and fails if any apt file of the image still names that archive.
+The appliance's own Keel source and its pin at 990 come from common
+(``overlays/turnkey.d/keel-apt``); this recipe ships neither.
 
 First boot
 ----------
