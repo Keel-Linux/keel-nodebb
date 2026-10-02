@@ -16,9 +16,9 @@ include $(FAB_PATH)/common/mk/turnkey.mk
 # nothing in the tree says trusted=yes, and apt runs with --error-on=any, so a
 # signature that cannot be checked fails the build instead of warning about it
 # and carrying on. conf.d/zz-project-packages checks what was installed
-# against that copy, then removes the copy, the source entry and the keyring
-# from the image and leaves the future apt.keellinux.org entry in place,
-# disabled.
+# against that copy, then removes the copy, the source entry, the build-only
+# pin conf.d/main gave it and the keyring from the image. The appliance's own
+# Keel source and pin are common's (overlays/turnkey.d/keel-apt).
 #
 # None of the three build time files is for an installed appliance, because
 # the staging key signs whatever the build host produced. The removelist at

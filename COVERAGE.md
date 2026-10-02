@@ -13,7 +13,8 @@ acceptance test of an appliance recipe, docs/org-plan.md section 1).
 | overlay/etc/nginx/* | tests/nginx.bats (12 tests) | not executable | asserted as content: the geo variable, the map, the listeners, the proxy headers |
 | tests/lib/boot-test-lib.sh | tests/boot-test.bats (41 tests) | 100 percent (137/137) under kcov | the logic of the boot test: argument parsing, address discovery, deadlines, the HTTP and diff verdicts |
 | bin/keel-archive-check | tests/archive-check.bats (27 tests) | 100 percent (54/54) under kcov | the build time check: the archive copy in the build tree is the live archive, the source entry names the keyring through signed-by, nothing says trusted=yes, and the signature on the copied InRelease verifies against the staging key (tracker#7) |
-| conf.d/zz-project-packages | tests/project-packages.bats (14 tests) | 100 percent (31/31) under kcov | the build time check that each project package is the candidate of the archive and a project build, and that the archive copy, its source entry and the staging keyring leave the image |
+| conf.d/zz-project-packages | tests/project-packages.bats (16 tests) | 100 percent (35/35) under kcov | the build time check that each project package is the candidate of the archive and a project build, and that the archive copy, its source entry, its build-only pin and the staging keyring leave the image, with no apt file still naming that archive |
+| overlay, conf.d/main | tests/apt-files.bats (3 tests) | static | no Keel source or 1001 pin in the overlay; the build time pin on the staging Label is written before the upgrade |
 | overlay/usr/lib/inithooks/bin/nodebb.py | none | 0 | dialog wrapper, only reached with a terminal attached |
 | conf.d/main | tests/boot-test.sh (build step) | integration only | build time script, 0004 pragmatic limits |
 | tests/boot-test.sh | itself | integration only | the thin main of the acceptance test: keel and LXC as root |
@@ -116,8 +117,9 @@ archive, a candidate that is not what the archive offers, an upstream build of
 the same version, a package the archive does not offer, an archive that offers
 two of them, a package that is not installed, a half configured one, a build
 with no project archive in its source list, a distribution the archive has not
-got, and the removal of the build time source with the disabled
-`apt.keellinux.org` entry left in place.
+got, the removal of the build time source and its build-only pin, a source
+or a pin that still names the build time archive, and common's Keel source
+and 990 pin left in place.
 
 ## Plan
 
