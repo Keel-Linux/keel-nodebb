@@ -59,6 +59,12 @@ jobs:
       # checks this against the parent the published manifest records.
       parent: nodejs-nginx
       timeout: 60
+      # No layer of this appliance is on the mirror yet (decision 0059: it
+      # moves to the current stack first). Without this line the job fails
+      # on every pull request. The job summary says that nothing was
+      # booted, and the exemption becomes an error when the layer is
+      # published, so the line then must go.
+      allow_unpublished: true
   package:
     # "package / changelog" is a required status on main in this repository's
     # protection, and until now no job produced it: a check that is required
