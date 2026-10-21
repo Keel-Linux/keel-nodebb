@@ -23,6 +23,10 @@ matches the spec.
 - `nodebb.bats`: unit tests of
   `overlay/usr/lib/inithooks/lib/nodebb.sh`, the logic behind the first boot
   hook `40nodebb`.
+- `dialog.bats`: `overlay/usr/lib/inithooks/bin/nodebb.py` run as the hook
+  runs it, output redirected, inside a pseudo terminal (`script`), with a
+  stand-in for libinithooks whose dialog refuses to draw anywhere but a
+  terminal: the answers go to the hook and the box to the screen.
 - `archive-check.bats`: unit tests of `bin/keel-archive-check`, which the
   Makefile runs twice per build so that the copy of the project archive inside
   the build tree is the archive as it is at build time.
@@ -41,6 +45,7 @@ Debian packages `bats` (1.11) and `kcov` (43); no root:
 
     bats tests/nodebb.bats
     bats tests/boot-test.bats
+    bats tests/dialog.bats
     COVERAGE_THRESHOLD=100 tests/coverage.sh
 
 `COVERAGE_DIR=coverage tests/coverage.sh` keeps the kcov reports, one
