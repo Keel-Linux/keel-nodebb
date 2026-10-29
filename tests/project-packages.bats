@@ -14,7 +14,8 @@ setup() {
     export KEEL_APT_ROOT="$scratch/srv/keel-apt"
     export KEEL_STAGING_LIST="$scratch/apt/sources.list.d/keel-staging.list"
     export KEEL_STAGING_KEYRING="$scratch/apt/keyrings/keel-staging-keyring.asc"
-    export KEEL_SOURCES="$scratch/apt/sources.list.d/keel.sources"
+    export KEEL_APT_ETC="$scratch/apt"
+    export KEEL_STAGING_PIN="$scratch/apt/preferences.d/keel-staging"
     export KEEL_APT_LISTS="$scratch/apt/lists"
     export FIXTURES="$scratch/fixtures"
 
@@ -27,7 +28,10 @@ setup() {
     echo "deb [signed-by=$KEEL_STAGING_KEYRING] file://$KEEL_APT_ROOT/repo $DIST main" \
         > "$KEEL_STAGING_LIST"
     printf 'not a key, and this script never reads one\n' > "$KEEL_STAGING_KEYRING"
-    printf 'Types: deb\nURIs: https://apt.keellinux.org\nEnabled: no\n' > "$KEEL_SOURCES"
+    # the build time pin conf.d/main writes before its upgrade
+    mkdir -p "$(dirname "$KEEL_STAGING_PIN")"
+    printf 'Package: *\nPin: release l=Keel Linux staging\nPin-Priority: 1001\n' \
+        > "$KEEL_STAGING_PIN"
 
     offer inithooks 2.3.6+keel4
     offer confconsole 2.2.3+keel2
@@ -93,7 +97,7 @@ installed() { printf 'version=%s\nstatus=%s\n' "$2" "$3" > "$FIXTURES/installed.
     [ ! -e "$KEEL_APT_ROOT" ]
     [ ! -e "$KEEL_STAGING_LIST" ]
     [ -z "$(ls -A "$KEEL_APT_LISTS")" ]
-    [ -f "$KEEL_SOURCES" ]
+    [ ! -e "$KEEL_STAGING_PIN" ]
 }
 
 @test "the keyring that verified the staging archive is gone too" {
@@ -190,8 +194,30 @@ installed() { printf 'version=%s\nstatus=%s\n' "$2" "$3" > "$FIXTURES/installed.
     [[ "$output" == *"trixie-nowhere"* ]]
 }
 
-@test "the future signed repository has to stay in place, disabled" {
-    printf 'Types: deb\nURIs: https://apt.keellinux.org\nEnabled: yes\n' > "$KEEL_SOURCES"
+@test "an apt source that still names the build time archive fails the build" {
+    printf 'Types: deb\nURIs: file:///srv/keel-apt/repo\nSuites: trixie-staging\n' \
+        > "$KEEL_APT_ETC/sources.list.d/leftover.sources"
     run "$SCRIPT"
     [ "$status" -ne 0 ]
+    [[ "$output" == *leftover.sources* ]]
+}
+
+@test "a pin that still names the staging Label fails the build" {
+    printf 'Package: *\nPin: release l=Keel Linux staging\nPin-Priority: 1001\n' \
+        > "$KEEL_APT_ETC/preferences.d/other"
+    run "$SCRIPT"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *preferences.d/other* ]]
+}
+
+@test "common's Keel source and its 990 pin are left in place" {
+    # what Keel-Linux/common#30 ships (overlays/turnkey.d/keel-apt)
+    printf 'Types: deb\nURIs: https://archive.keellinux.org\nSuites: trixie\nComponents: main\nEnabled: yes\n' \
+        > "$KEEL_APT_ETC/sources.list.d/keel.sources"
+    printf 'Package: *\nPin: release o=Keel Linux\nPin-Priority: 990\n' \
+        > "$KEEL_APT_ETC/preferences.d/keel"
+    run "$SCRIPT"
+    [ "$status" -eq 0 ]
+    [ -f "$KEEL_APT_ETC/sources.list.d/keel.sources" ]
+    [ -f "$KEEL_APT_ETC/preferences.d/keel" ]
 }

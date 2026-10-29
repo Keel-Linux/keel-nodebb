@@ -27,7 +27,8 @@ KEEL_APT_ROOT="${KEEL_APT_ROOT:-/srv/keel-apt}"
 KEEL_APT_REPO="$KEEL_APT_ROOT/repo"
 KEEL_STAGING_LIST="${KEEL_STAGING_LIST:-/etc/apt/sources.list.d/keel-staging.list}"
 KEEL_STAGING_KEYRING="${KEEL_STAGING_KEYRING:-/etc/apt/keyrings/keel-staging-keyring.asc}"
-KEEL_SOURCES="${KEEL_SOURCES:-/etc/apt/sources.list.d/keel.sources}"
+KEEL_STAGING_PIN="${KEEL_STAGING_PIN:-/etc/apt/preferences.d/keel-staging}"
+KEEL_APT_ETC="${KEEL_APT_ETC:-/etc/apt}"
 KEEL_APT_LISTS="${KEEL_APT_LISTS:-/var/lib/apt/lists}"
 KEEL_PROJECT_PACKAGES="${KEEL_PROJECT_PACKAGES:-inithooks confconsole keel}"
 
@@ -74,14 +75,18 @@ for package in $KEEL_PROJECT_PACKAGES; do
 done
 
 # the build time package source is not for appliances: remove the source entry,
-# the copy of the archive it names and the keyring the build verified that
-# archive with, and keep the documented, disabled entry for the future signed
-# repository (overlay). The staging key signs whatever the build host produced,
-# so an image that kept it would carry trust in a nightly (tracker#7).
-# common/removelists-final/turnkey removes the same three paths at the end of
-# the build, whatever a recipe does.
+# the pin conf.d/main gave it for the build, the copy of the archive it names
+# and the keyring the build verified that archive with. The staging key signs
+# whatever the build host produced, so an image that kept it would carry trust
+# in a nightly (tracker#7). common/removelists-final/turnkey removes the same
+# paths at the end of the build, whatever a recipe does. The appliance's own
+# Keel source and its 990 pin are common's (overlays/turnkey.d/keel-apt), so
+# nothing the image keeps may still name the build time archive.
 rm -f "$KEEL_STAGING_LIST"
+rm -f "$KEEL_STAGING_PIN"
 rm -f "$KEEL_STAGING_KEYRING"
 rm -rf "$KEEL_APT_ROOT"
 rm -rf "${KEEL_APT_LISTS:?}"/*
-grep -q '^Enabled: no' "$KEEL_SOURCES"
+apt_files=("$KEEL_APT_ETC/sources.list" "$KEEL_APT_ETC/sources.list.d" "$KEEL_APT_ETC/preferences" "$KEEL_APT_ETC/preferences.d")
+leftover=$(grep -rlsE 'trixie-staging|/srv/keel-apt|l=Keel Linux staging' "${apt_files[@]}" || true)
+[ -z "$leftover" ] || fatal "these apt files still name the build time archive: $(tr '\n' ' ' <<< "$leftover")"

@@ -1,15 +1,19 @@
-turnkey-nodebb-19.0 (5) turnkey; urgency=medium
+turnkey-nodebb-19.0 (6) turnkey; urgency=low
 
-  * bin/nodebb.py draws its password box on the terminal. firstboot.d/
-    40nodebb reads the script's standard output for APP_PASS=, and dialog
-    draws on standard output, so an interactive first boot would freeze at
-    the admin password with the box drawn into the hook's pipe, as
-    keel-wordpress 19.0-3 did at the MariaDB password on Proxmox
-    (2026-09-30). The answers now go to a copy of that pipe and standard
-    output is the terminal. tests/dialog.bats runs the script as the hook
-    does, inside a pseudo terminal.
+  * The overlay no longer ships /etc/apt/sources.list.d/keel.sources
+    (apt.keellinux.org, disabled) or /etc/apt/preferences.d/keel (the Keel
+    origin at 1001). At 1001 apt downgraded every package newer than the
+    archive's (tracker#23), and both files, at the paths common uses, would
+    override the source and the 990 pin Keel-Linux/common#30 ships. The
+    build time archive still wins over TurnKey's 999 pin during the build:
+    conf.d/main pins it by its Label, l=Keel Linux staging, at 1001 before
+    the upgrade, and conf.d/zz-project-packages removes that pin with the
+    build time source, then fails if any apt source or pin of the image
+    still names the build time archive, in place of the check that
+    keel.sources was disabled. tests/project-packages.bats (16 tests, 100
+    percent) and tests/apt-files.bats check it.
 
- -- Keel Linux maintainers <admin@keellinux.org>  Wed, 30 Sep 2026 04:30:00 +0000
+ -- Marcos Mendez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 17:00:00 +0000
 
 turnkey-nodebb-19.0 (4) turnkey; urgency=low
 
