@@ -1,3 +1,16 @@
+turnkey-nodebb-19.0 (5) turnkey; urgency=medium
+
+  * bin/nodebb.py draws its password box on the terminal. firstboot.d/
+    40nodebb reads the script's standard output for APP_PASS=, and dialog
+    draws on standard output, so an interactive first boot would freeze at
+    the admin password with the box drawn into the hook's pipe, as
+    keel-wordpress 19.0-3 did at the MariaDB password on Proxmox
+    (2026-09-30). The answers now go to a copy of that pipe and standard
+    output is the terminal. tests/dialog.bats runs the script as the hook
+    does, inside a pseudo terminal.
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Wed, 30 Sep 2026 04:30:00 +0000
+
 turnkey-nodebb-19.0 (4) turnkey; urgency=low
 
   * bin/keel-archive-check refuses a trusted=yes on the project archive rather
