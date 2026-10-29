@@ -1,4 +1,4 @@
-turnkey-nodebb-19.0 (5) turnkey; urgency=low
+turnkey-nodebb-19.0 (6) turnkey; urgency=low
 
   * The overlay no longer ships /etc/apt/sources.list.d/keel.sources
     (apt.keellinux.org, disabled) or /etc/apt/preferences.d/keel (the Keel
