@@ -53,7 +53,7 @@ rm -rf "$tmp"
 grep -q "\"version\": \"$NODEBB_VERSION\"" "$NODEBB_DIR/install/package.json"
 # No container files of upstream in a Keel image
 rm -rf "$NODEBB_DIR"/Dockerfile "$NODEBB_DIR"/dev.Dockerfile "$NODEBB_DIR"/docker-compose*.yml \
-    "$NODEBB_DIR"/.docker
+    "$NODEBB_DIR"/.docker "$NODEBB_DIR"/.dockerignore
 # tar as root keeps the modes of the archive, 0664 and 0775 (CT 9385,
 # 2026-11-11): nobody but root writes the code
 chmod -R u+rwX,go+rX,go-w "$NODEBB_DIR"
@@ -69,6 +69,16 @@ rm -rf /root/.npm
 # what NodeBB writes on each node
 install -d -o nodebb -g nodebb -m 0755 build logs
 install -o nodebb -g nodebb -m 0644 /dev/null pidfile
+
+# nodebb-plugin-emoji removes and writes build/emoji of its own directory at
+# each start (static:app.load). With a root-owned tree that is EROFS, and
+# no emoji works (CT 9385, 2026-11-11). Its build directory is a link into
+# build/, which nodebb writes and nodebb.service allows.
+# begin: emoji
+install -d -o nodebb -g nodebb -m 0755 /var/www/nodebb/build/plugin-emoji
+rm -rf /var/www/nodebb/node_modules/nodebb-plugin-emoji/build
+ln -s ../../build/plugin-emoji /var/www/nodebb/node_modules/nodebb-plugin-emoji/build
+# end: emoji
 
 # The scratch setup that builds the assets. The layers below removed the
 # snake oil certificate that postgresql.conf names, so the server starts

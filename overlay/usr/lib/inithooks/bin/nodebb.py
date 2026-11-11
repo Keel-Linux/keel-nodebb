@@ -202,7 +202,9 @@ def make_uploads(owner, path=UPLOADS, chown=os.chown):
     directory for it (src/install.js, CT 9385, 2026-11-11). Every other
     upload makes its own directory (src/file.js)."""
     system = os.path.join(path, "system")
-    os.makedirs(system, mode=0o755, exist_ok=True)
+    os.makedirs(system, exist_ok=True)
+    # makedirs applies the umask to its mode
+    os.chmod(system, 0o755)
     chown(system, *owner)
 
 
