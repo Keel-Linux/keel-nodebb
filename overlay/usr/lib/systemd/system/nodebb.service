@@ -23,10 +23,12 @@ TimeoutStopSec=60
 StandardOutput=journal
 StandardError=journal
 # The code in /var/www/nodebb is root's. NodeBB writes only these paths of
-# each node (note 0082, section 4): the assets, the logs and the pidfile.
-# The uploads are in /var/lib/nodebb, which the pair replicates.
+# each node (note 0082, section 4): the assets, the logs and the pidfile,
+# and the emoji data of nodebb-plugin-emoji (conf.d/main). The uploads are
+# in /var/lib/nodebb, which the pair replicates.
 ProtectSystem=strict
 ReadWritePaths=/var/lib/nodebb /var/www/nodebb/build /var/www/nodebb/logs /var/www/nodebb/pidfile
+ReadWritePaths=/var/www/nodebb/node_modules/nodebb-plugin-emoji/build
 # /run/keel-nodebb/replica: serve.py writes it on a standby, and Nginx reads
 # it to show the notice of the replica
 RuntimeDirectory=keel-nodebb

@@ -70,14 +70,16 @@ rm -rf /root/.npm
 install -d -o nodebb -g nodebb -m 0755 build logs
 install -o nodebb -g nodebb -m 0644 /dev/null pidfile
 
-# nodebb-plugin-emoji removes and writes build/emoji of its own directory at
-# each start (static:app.load). With a root-owned tree that is EROFS, and
-# no emoji works (CT 9385, 2026-11-11). Its build directory is a link into
-# build/, which nodebb writes and nodebb.service allows.
+# nodebb-plugin-emoji builds its data in build/emoji of its own directory
+# at the first start of a node (static:app.load, when build/emoji/table.json
+# is missing) and when an admin asks for a new build. It removes the
+# directory and makes it again, so it needs write on build/ of the plugin.
+# With a root-owned tree that was EROFS, and no emoji worked (CT 9385,
+# 2026-11-11). nodebb owns that one directory, not the files in it, and
+# nodebb.service allows it. build/lib holds the code of the plugin: a link
+# of build/ into /var/www/nodebb/build removed that code.
 # begin: emoji
-install -d -o nodebb -g nodebb -m 0755 /var/www/nodebb/build/plugin-emoji
-rm -rf /var/www/nodebb/node_modules/nodebb-plugin-emoji/build
-ln -s ../../build/plugin-emoji /var/www/nodebb/node_modules/nodebb-plugin-emoji/build
+chown nodebb:nodebb /var/www/nodebb/node_modules/nodebb-plugin-emoji/build
 # end: emoji
 
 # The scratch setup that builds the assets. The layers below removed the
