@@ -103,7 +103,7 @@ def scram_verifier(password, salt=None, iterations=SCRAM_ITERATIONS):
 
 def run_postgres(args, stdin=None, run=subprocess.run):
     """psql as the operating system user postgres, on the socket."""
-    result = run(["runuser", "-u", "postgres", "--", "psql", "-X", "-q", "-At",
+    result = run(["/usr/sbin/runuser", "-u", "postgres", "--", "psql", "-X", "-q", "-At",
                   "-v", "ON_ERROR_STOP=1"] + args,
                  input=stdin, capture_output=True, text=True, check=False)
     if result.returncode != 0:
@@ -167,7 +167,7 @@ def write_config(config, owner, path=CONFIG, chown=os.chown):
 
 def setup_command(nodebb_dir=NODEBB_DIR):
     """./nodebb setup; with the assets of the image, no build."""
-    command = ["runuser", "-u", SERVICE_USER, "--", "./nodebb", "setup"]
+    command = ["/usr/sbin/runuser", "-u", SERVICE_USER, "--", "./nodebb", "setup"]
     if os.path.isdir(os.path.join(nodebb_dir, "build", "public")):
         command.append("--skip-build")
     return command

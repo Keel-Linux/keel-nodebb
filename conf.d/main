@@ -17,6 +17,9 @@
 #    after it. The first boot hook (45nodebb) makes them again from the spec.
 # 4. The check page of lnpp is removed, as keel-odoo removes it.
 
+# The shebang sets -e and -x, and a call as `bash conf.d/main` ignores it.
+set -ex
+
 NODEBB_VERSION=4.16.7
 NODEBB_SHA256=6aedead659866e442e11be7a72cc07a63ae644a72d99ff61ed3b25e5178daf8d
 NODEBB_URL="https://github.com/NodeBB/NodeBB/archive/refs/tags/v${NODEBB_VERSION}.tar.gz"
