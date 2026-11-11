@@ -75,11 +75,13 @@ install -o nodebb -g nodebb -m 0644 /dev/null pidfile
 # is missing) and when an admin asks for a new build. It removes the
 # directory and makes it again, so it needs write on build/ of the plugin.
 # With a root-owned tree that was EROFS, and no emoji worked (CT 9385,
-# 2026-11-11). nodebb owns that one directory, not the files in it, and
-# nodebb.service allows it. build/lib holds the code of the plugin: a link
-# of build/ into /var/www/nodebb/build removed that code.
+# 2026-11-11). nodebb owns that directory and build/emoji with its files,
+# not build/lib and the other files, and nodebb.service allows it. build/lib
+# holds the code of the plugin: a link of build/ into /var/www/nodebb/build
+# removed that code.
 # begin: emoji
 chown nodebb:nodebb /var/www/nodebb/node_modules/nodebb-plugin-emoji/build
+chown -R nodebb:nodebb /var/www/nodebb/node_modules/nodebb-plugin-emoji/build/emoji
 # end: emoji
 
 # The scratch setup that builds the assets. The layers below removed the
