@@ -197,6 +197,15 @@ def owner_of(user):
     return entry.pw_uid, entry.pw_gid
 
 
+def make_uploads(owner, path=UPLOADS, chown=os.chown):
+    """uploads/system: the setup copies the favicon there and makes no
+    directory for it (src/install.js, CT 9385, 2026-11-11). Every other
+    upload makes its own directory (src/file.js)."""
+    system = os.path.join(path, "system")
+    os.makedirs(system, mode=0o755, exist_ok=True)
+    chown(system, *owner)
+
+
 def mark_ready(path=READY):
     with open(path, "w"):
         pass
@@ -224,6 +233,7 @@ def configure(values, env, run=subprocess.run, chown=os.chown, owner=owner_of):
         if not password:
             raise HookError("no APP_PASS: the admin user of NodeBB needs a password")
         set_database(db_pass, run=run)
+        make_uploads((uid, gid), chown=chown)
         # setup runs as nodebb and rewrites config.json, so nodebb owns it
         # while setup runs
         write_config(config, (uid, gid), chown=chown)

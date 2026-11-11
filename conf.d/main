@@ -52,7 +52,11 @@ tar -C "$NODEBB_DIR" --strip-components=1 --no-same-owner -xzf "$tmp/nodebb.tar.
 rm -rf "$tmp"
 grep -q "\"version\": \"$NODEBB_VERSION\"" "$NODEBB_DIR/install/package.json"
 # No container files of upstream in a Keel image
-rm -f "$NODEBB_DIR"/Dockerfile "$NODEBB_DIR"/dev.Dockerfile "$NODEBB_DIR"/docker-compose*.yml
+rm -rf "$NODEBB_DIR"/Dockerfile "$NODEBB_DIR"/dev.Dockerfile "$NODEBB_DIR"/docker-compose*.yml \
+    "$NODEBB_DIR"/.docker
+# tar as root keeps the modes of the archive, 0664 and 0775 (CT 9385,
+# 2026-11-11): nobody but root writes the code
+chmod -R u+rwX,go+rX,go-w "$NODEBB_DIR"
 
 cd "$NODEBB_DIR"
 cp install/package.json package.json
@@ -105,13 +109,18 @@ grep -qxF 'include /etc/nginx/keel-front.d/*.conf;' "$SNIPPET" \
 # The stack check of lnpp is not part of the NodeBB product (keel-odoo
 # removes it for the same reason): the hook, the route, the application,
 # the socket, the service unit and its user.
-systemctl disable keel-lnpp-check.socket
+# A second run finds them gone already.
+if [ -e /usr/lib/systemd/system/keel-lnpp-check.socket ]; then
+    systemctl disable keel-lnpp-check.socket
+fi
 rm -rf /usr/lib/inithooks/firstboot.d/40lnpp-check \
     /etc/nginx/keel-default.d/50-keel-lnpp.conf \
     /usr/share/keel-lnpp \
     /usr/lib/systemd/system/keel-lnpp-check.socket \
     /usr/lib/systemd/system/keel-lnpp-check.service
-userdel keel-check
+if getent passwd keel-check > /dev/null; then
+    userdel keel-check
+fi
 
 # The appliance manifest, validated and resolved along lnpp, web and core
 keel manifest validate nodebb
