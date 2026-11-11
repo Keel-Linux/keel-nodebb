@@ -196,6 +196,10 @@ class Supervisor:
     def tick(self):
         if self.child is not None and not self.child_alive(self.child):
             say(4, "the server ended")
+            # A worker of a loader that was killed stays in the group and
+            # keeps port 4567 (kill -9 of loader.js, CT 9385, 2026-11-11):
+            # the group is stopped before a new start.
+            self.stop_child(self.child)
             self.child = None
             self.not_before = self.clock() + RESTART_DELAY
         writable = self.poller.writable()
