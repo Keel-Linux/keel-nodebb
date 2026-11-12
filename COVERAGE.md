@@ -8,7 +8,7 @@ LXC as the acceptance test of a recipe).
 
 | File | Test | Coverage | Note |
 | --- | --- | --- | --- |
-| overlay/usr/lib/inithooks/bin/nodebb.py | tests/python/test_nodebb_hook.py | 100 percent of lines and branches, coverage.py | the first boot program; fakes of psql, runuser, ./nodebb and the dialog; the secret row is written one time; no DB_PASS, the socket in config.json |
+| overlay/usr/lib/inithooks/bin/nodebb.py | tests/python/test_nodebb_hook.py | 100 percent of lines and branches, coverage.py | the first boot program; fakes of psql, runuser, ./nodebb and the dialog; the secret row is written one time; no DB_PASS, the socket in config.json; a CPU with no x86-64-v2 stops the hook before any question |
 | overlay/usr/lib/keel-nodebb/serve.py | tests/python/test_serve.py | 100 percent of lines and branches, coverage.py | NodeBB serves on the writable node only; the secret of the row goes in the environment; main() and the signals are integration only |
 | overlay/usr/lib/inithooks/firstboot.d/45nodebb | tests/hook.bats (8 tests) | 100 percent (11/11), kcov | declared values, a headless boot that defers to keel-init, a boot with no DB_PASS, a console, a failure of nodebb.py |
 | conf.d/zz-check | tests/image-check.bats (14 tests) | 95.95 percent (71/74), kcov | each defect alone, in a fakeroot session for the owners |

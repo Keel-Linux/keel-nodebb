@@ -57,7 +57,21 @@ def paths(hook, tmp_path, monkeypatch):
     monkeypatch.setattr(hook, "CONFIG", str(nodebb / "config.json"))
     monkeypatch.setattr(hook, "READY", str(tmp_path / "ready"))
     monkeypatch.setattr(hook, "UPLOADS", str(tmp_path / "uploads"))
+    cpuinfo = tmp_path / "cpuinfo"
+    cpuinfo.write_text(cpu(V2_FLAGS))
+    monkeypatch.setattr(hook, "CPUINFO", str(cpuinfo))
     return tmp_path
+
+
+# the flags of the x86-64-v2 level, as /proc/cpuinfo names them
+V2_FLAGS = "fpu sse sse2 pni ssse3 cx16 sse4_1 sse4_2 popcnt lahf_lm"
+# the CPU model kvm64, the default of `qm create` (VM 9448, BR1, 2026-11-12)
+KVM64_FLAGS = "fpu sse sse2 pni cx16 lahf_lm"
+
+
+def cpu(flags, cores=2):
+    return "".join("processor\t: %d\nmodel name\t: Common KVM processor\nflags\t\t: %s\n\n"
+                   % (n, flags) for n in range(cores))
 
 
 # DB_PASS is in the environment of a preseeded first boot: the hook must
@@ -331,3 +345,48 @@ def test_main_reads_the_process_environment(hook, paths, monkeypatch):
 def test_the_default_upload_path_is_the_replicated_one(hook):
     assert hook.UPLOADS == "/var/lib/nodebb/uploads"
     assert hook.build_config("a.org", "s")["upload_path"] == "/var/lib/nodebb/uploads"
+
+
+def test_missing_cpu_flags_of_a_v2_cpu_is_empty(hook, tmp_path):
+    info = tmp_path / "cpuinfo"
+    info.write_text(cpu(V2_FLAGS))
+    assert hook.missing_cpu_flags(str(info), machine=lambda: "x86_64") == []
+
+
+def test_missing_cpu_flags_of_kvm64(hook, tmp_path):
+    info = tmp_path / "cpuinfo"
+    info.write_text(cpu(KVM64_FLAGS))
+    assert hook.missing_cpu_flags(str(info), machine=lambda: "x86_64") == \
+        ["popcnt", "sse4_1", "sse4_2", "ssse3"]
+
+
+def test_missing_cpu_flags_with_no_flags_line_is_every_flag(hook, tmp_path):
+    info = tmp_path / "cpuinfo"
+    info.write_text("processor\t: 0\n")
+    assert hook.missing_cpu_flags(str(info), machine=lambda: "x86_64") == sorted(hook.X86_64_V2)
+
+
+def test_missing_cpu_flags_is_empty_on_another_architecture(hook, tmp_path):
+    # sharp has a prebuilt binary with no CPU level for arm64
+    assert hook.missing_cpu_flags(str(tmp_path / "none"), machine=lambda: "aarch64") == []
+
+
+def test_a_cpu_with_no_x86_64_v2_stops_the_hook_before_any_question(hook, paths, monkeypatch):
+    (paths / "cpuinfo").write_text(cpu(KVM64_FLAGS))
+    monkeypatch.setattr(hook.platform, "machine", lambda: "x86_64")
+
+    def no_dialog():
+        raise AssertionError("the hook asked a question")
+    monkeypatch.setattr(hook, "load_dialog", no_dialog)
+    run = Fake()
+    with pytest.raises(hook.HookError) as error:
+        hook.configure(VALUES, {}, run=run, chown=lambda *a: None, owner=lambda u: (1, 2),
+                       interactive=True)
+    message = str(error.value)
+    assert "x86-64-v2" in message
+    assert "popcnt sse4_1 sse4_2 ssse3" in message
+    assert "x86-64-v2-AES" in message
+    assert "45nodebb" in message
+    # nothing is changed: no psql, no setup, no config.json
+    assert run.calls == []
+    assert not (paths / "nodebb" / "config.json").exists()

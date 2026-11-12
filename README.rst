@@ -52,6 +52,23 @@ What the layer adds
   replicates (``state.replicate`` of ``nodebb.yaml``).
 - The check page of lnpp is removed.
 
+The CPU of a VM
+---------------
+
+NodeBB needs a CPU of the x86-64-v2 level. Its image library, sharp, loads
+its binary only on that level, and its WebAssembly build needs SSE4.1 too.
+An LXC uses the CPU of the host. A VM uses the CPU type of its
+configuration: the Proxmox VE web interface gives ``x86-64-v2-AES``, which
+is correct, but ``qm create`` with no ``--cpu`` gives ``kvm64``, which is
+not. On such a CPU the first boot hook ``45nodebb`` stops and says what to
+do:
+
+1. Stop the VM.
+2. Set its CPU type to ``x86-64-v2-AES`` or ``host`` (Hardware, Processors,
+   Type; or ``qm set VMID --cpu x86-64-v2-AES``).
+3. Start the VM and run ``/usr/lib/inithooks/firstboot.d/45nodebb`` as
+   root on its console.
+
 A change of the Node.js line
 ----------------------------
 

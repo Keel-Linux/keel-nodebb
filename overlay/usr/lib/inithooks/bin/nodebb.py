@@ -37,11 +37,21 @@ WordPress keeps its salts in its database. The first writable boot writes
 the row: the secret of the spec, else a new one. No later boot changes
 it. serve.py gives the secret of the row to NodeBB in its environment,
 which NodeBB reads before config.json.
+
+NodeBB needs a CPU of the x86-64-v2 level on x86_64: its image library
+sharp loads its linux-x64 binary only there, and the WebAssembly build of
+sharp needs SSE4.1 too. On the CPU model kvm64, the default of `qm create`,
+`./nodebb setup` stopped with 'Could not load the "sharp" module ...
+Prebuilt binaries for Linux x64 require v2 microarchitecture', and the
+forum answered 502 (vm-iso of 19.0-8, VM 9448, BR1, 2026-11-12). So the
+hook checks the flags of /proc/cpuinfo first. On such a CPU it changes
+nothing, asks nothing, and says what to change.
 """
 
 import getopt
 import json
 import os
+import platform
 import pwd
 import re
 import secrets
@@ -59,6 +69,10 @@ PORT = 4567
 # Debian); node-postgres takes a host that starts with "/" as a socket
 # directory
 SOCKET_DIR = "/run/postgresql"
+CPUINFO = "/proc/cpuinfo"
+# the x86-64-v2 level (sharp 0.35, _isUsingX64V2), as /proc/cpuinfo names
+# the flags: pni is SSE3
+X86_64_V2 = ("cx16", "lahf_lm", "pni", "popcnt", "sse4_1", "sse4_2", "ssse3")
 DIALOG_TITLE = "Keel Linux - First boot configuration"
 DOMAIN_RE = re.compile(
     r"^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)(:[0-9]{1,5})?$")
@@ -161,6 +175,32 @@ def store_secret(candidate, run=subprocess.run):
     if not lines or not lines[-1]:
         raise HookError("the table keel_nodebb_secret gave no secret")
     return lines[-1]
+
+
+def missing_cpu_flags(path=None, machine=None):
+    """The flags of the x86-64-v2 level that the CPU does not have, sorted.
+    Empty on another architecture."""
+    if (machine or platform.machine)() != "x86_64":
+        return []
+    have = set()
+    with open(path or CPUINFO) as info:
+        for line in info:
+            key, _, value = line.partition(":")
+            if key.strip() == "flags":
+                have.update(value.split())
+                break
+    return sorted(set(X86_64_V2) - have)
+
+
+def check_cpu():
+    missing = missing_cpu_flags()
+    if missing:
+        raise HookError(
+            "this CPU is not of the x86-64-v2 level (it has no %s), and the image "
+            "library of NodeBB needs that level. On Proxmox VE, set the CPU type of "
+            "the VM to x86-64-v2-AES (the default of the web interface) or host, start "
+            "the VM again, and run /usr/lib/inithooks/firstboot.d/45nodebb as root"
+            % " ".join(missing))
 
 
 def read_config(path=None):
@@ -268,6 +308,7 @@ def host_of(domain):
 
 
 def configure(values, env, run=subprocess.run, chown=os.chown, owner=owner_of, interactive=False):
+    check_cpu()
     domain = given(values.get("domain"))
     if not domain or not DOMAIN_RE.match(domain):
         raise HookError("the domain %r is not a host name" % domain)

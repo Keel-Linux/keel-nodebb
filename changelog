@@ -1,3 +1,21 @@
+turnkey-nodebb-19.0 (9) turnkey; urgency=low
+
+  * The first boot hook says why NodeBB cannot start on a CPU that is not
+    of the x86-64-v2 level. On the ISO in a VM of the CPU model kvm64 (the
+    default of `qm create`), ./nodebb setup stopped with 'Could not load
+    the "sharp" module ... Prebuilt binaries for Linux x64 require v2
+    microarchitecture'. 45nodebb failed with exit code 1, and the forum
+    answered 502 (commissioning of 19.0-8, vm-iso, BR1 and BR2,
+    2026-11-12). An LXC uses the CPU of the host, so it passed.
+  * nodebb.py reads the flags of /proc/cpuinfo before it asks or changes
+    anything. When a flag of the level is missing, it stops and tells the
+    admin to set the CPU type of the VM to x86-64-v2-AES (the default of
+    the Proxmox VE web interface) or host, and to run 45nodebb again.
+  * The WebAssembly build of sharp is not a fallback: it needs SSE4.1
+    too ("Wasm SIMD unsupported" on kvm64, VM 9448).
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Thu, 12 Nov 2026 23:00:00 +0000
+
 turnkey-nodebb-19.0 (8) turnkey; urgency=low
 
   * The interactive first boot configures NodeBB. On keel-init and on the
