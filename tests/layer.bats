@@ -31,6 +31,11 @@ setup() {
     [ "$status" -eq 1 ]
 }
 
+@test "the build removes the test suite of secure-keys, which holds a private key" {
+    grep -q '^test -f node_modules/secure-keys/test/test.secret.key$' "$R/conf.d/main"
+    grep -q '^rm -rf node_modules/secure-keys/test$' "$R/conf.d/main"
+}
+
 @test "the lock file is of NodeBB 4.16.7, with no git source" {
     lock="$O/usr/share/keel-nodebb/package-lock.json"
     python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); r = d["packages"][""]; assert r["name"] == "nodebb" and r["version"] == "4.16.7"; assert not [k for k, v in d["packages"].items() if v.get("resolved", "").startswith(("git", "github:"))]' "$lock"

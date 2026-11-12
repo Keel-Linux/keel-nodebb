@@ -67,6 +67,11 @@ python3 -c 'import json, sys; lock = json.load(open(sys.argv[1])); sys.exit(0 if
     package-lock.json "$NODEBB_VERSION"
 HOME=/root npm ci --omit=dev --no-audit --no-fund
 rm -rf /root/.npm
+# secure-keys (a dependency of nconf) ships its test suite, and that suite
+# holds a private key. The key would be the same on every machine, so the
+# release key scan refuses the layer. Nothing loads the test suite.
+test -f node_modules/secure-keys/test/test.secret.key
+rm -rf node_modules/secure-keys/test
 
 # what NodeBB writes on each node
 install -d -o nodebb -g nodebb -m 0755 build logs
