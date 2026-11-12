@@ -101,6 +101,10 @@ forbidden:
   - {kind: path, name: /usr/lib/systemd/system/keel-lnpp-check.socket}
   - {kind: path, name: /usr/lib/systemd/system/keel-lnpp-check.service}
   - {kind: path, name: /usr/bin/redis-server}
+# The VM of the vm-iso pass: sharp 0.35.5 of NodeBB needs the CPU level
+# x86-64-v2 and does not start on kvm64, the default of the runner.
+vm:
+  cpu: x86-64-v2-AES
 screenshots:
   - name: nodebb
     url: /login
