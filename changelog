@@ -1,5 +1,12 @@
 turnkey-nodebb-19.0 (7) turnkey; urgency=low
 
+  * The plan names keel-nodejs-24: one package for each Node.js line (the
+    maintainer, 2026-11-12). nodebb-nodejs.path restarts NodeBB when the
+    Node.js binary changes, as the package has no maintainer script.
+  * The session secret is in the one-row table keel_nodebb_secret of the
+    database, written one time by the first writable boot, from
+    KEEL_SECRET_NODEBB_SECRET of the spec or new. serve.py gives it to
+    NodeBB in the environment.
   * Handbook note 0082, steps 1 to 5: the layer is built on lnpp, not on
     the nodejs-nginx stack. NodeBB 4.16.7 (was 4.10.3) runs on the
     PostgreSQL of lnpp in every mode. Redis, the own Nginx site, the build
