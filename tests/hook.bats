@@ -26,7 +26,7 @@ console_deferred() { echo "INFO: [$1] not asked, nobody can answer ($INITHOOKS_U
 CON
     cat > "$scratch/inithooks/bin/nodebb.py" <<'PY'
 #!/bin/sh
-echo "nodebb.py $* APP_PASS=${APP_PASS-unset} DB_PASS=${DB_PASS-unset} NODEBB_SECRET=${NODEBB_SECRET-unset}" >> "$CALLS"
+echo "nodebb.py $* APP_PASS=${APP_PASS-unset} DB_PASS=${DB_PASS-unset} KEEL_SECRET_NODEBB_SECRET=${KEEL_SECRET_NODEBB_SECRET-unset}" >> "$CALLS"
 exit "${NODEBB_PY_STATUS:-0}"
 PY
     chmod +x "$scratch/inithooks/bin/nodebb.py"
@@ -40,7 +40,7 @@ PY
     export CALLS="$scratch/calls"
     export DEFERRED="$scratch/deferred"
     export INITHOOKS_UNATTENDED=no
-    unset APP_PASS DB_PASS APP_DOMAIN APP_EMAIL APP_ADMIN_USER NODEBB_SECRET
+    unset APP_PASS DB_PASS APP_DOMAIN APP_EMAIL APP_ADMIN_USER KEEL_SECRET_NODEBB_SECRET
     cat > "$INITHOOKS_DEFAULT" <<DEF
 INITHOOKS_CONF=$INITHOOKS_CONF
 INITHOOKS_PATH=$scratch/inithooks
@@ -57,7 +57,7 @@ export APP_ADMIN_USER=boss
 CONF
     run "$HOOK"
     [ "$status" -eq 0 ]
-    [ "$(head -1 "$CALLS")" = "nodebb.py --domain=forum.example.org --email=boss@example.org --admin=boss APP_PASS=app-secret DB_PASS=db-secret NODEBB_SECRET=" ]
+    [ "$(head -1 "$CALLS")" = "nodebb.py --domain=forum.example.org --email=boss@example.org --admin=boss APP_PASS=app-secret DB_PASS=db-secret KEEL_SECRET_NODEBB_SECRET=" ]
     [ "$(sed -n 2p "$CALLS")" = "systemctl try-restart nodebb.service" ]
     [ ! -f "$DEFERRED" ]
 }
@@ -69,11 +69,11 @@ CONF
     [[ "$(head -1 "$CALLS")" == "nodebb.py --domain=node.example.org --email= --admin= "* ]]
 }
 
-@test "a secret of the spec goes to nodebb.py" {
-    printf 'export APP_PASS=a\nexport DB_PASS=b\nexport NODEBB_SECRET=s3\n' > "$INITHOOKS_CONF"
+@test "a secret of the spec (KEEL_SECRET_NODEBB_SECRET of keel) goes to nodebb.py" {
+    printf 'export APP_PASS=a\nexport DB_PASS=b\nexport KEEL_SECRET_NODEBB_SECRET=s3\n' > "$INITHOOKS_CONF"
     run "$HOOK"
     [ "$status" -eq 0 ]
-    [[ "$(head -1 "$CALLS")" == *"NODEBB_SECRET=s3" ]]
+    [[ "$(head -1 "$CALLS")" == *"KEEL_SECRET_NODEBB_SECRET=s3" ]]
 }
 
 @test "a headless first boot with no app password asks nothing and leaves it to keel-init" {

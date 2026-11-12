@@ -34,8 +34,9 @@ fi
 
 # The passwords go in the environment, not in the arguments: the process
 # list shows the arguments.
+# keel renders secrets.nodebb_secret of the spec as KEEL_SECRET_NODEBB_SECRET.
 export APP_PASS DB_PASS
-export NODEBB_SECRET="${NODEBB_SECRET:-}"
+export KEEL_SECRET_NODEBB_SECRET="${KEEL_SECRET_NODEBB_SECRET:-}"
 "$INITHOOKS_PATH/bin/nodebb.py" --domain="${APP_DOMAIN:-$(hostname -f)}" \
     --email="${APP_EMAIL:-}" --admin="${APP_ADMIN_USER:-}"
 

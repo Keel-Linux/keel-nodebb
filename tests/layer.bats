@@ -14,8 +14,10 @@ setup() {
     O="$R/overlay"
 }
 
-@test "the plan installs keel-nodejs and no Redis, no Debian nodejs" {
-    grep -qx 'keel-nodejs' "$R/plan/main"
+@test "the plan installs the package of line 24 and no Redis, no Debian nodejs" {
+    grep -qx 'keel-nodejs-24' "$R/plan/main"
+    grep -q '"keel-nodejs-$NODE_LINE"' "$R/conf.d/main"
+    grep -qx 'NODE_LINE=24' "$R/conf.d/main"
     run grep -E '^(redis|nodejs|npm)' "$R/plan/main"
     [ "$status" -eq 1 ]
 }
@@ -47,6 +49,16 @@ setup() {
     grep -qx 'ReadWritePaths=/var/www/nodebb/node_modules/nodebb-plugin-emoji/build' "$u"
     grep -qx 'RuntimeDirectory=keel-nodebb' "$u"
     grep -qx 'enable nodebb.service' "$O/usr/lib/systemd/system-preset/20-keel-nodebb.preset"
+}
+
+@test "a change of the Node.js binary restarts NodeBB through a path unit of the layer" {
+    p="$O/usr/lib/systemd/system/nodebb-nodejs.path"
+    grep -qx 'PathChanged=/usr/lib/keel-nodejs/bin/node' "$p"
+    grep -qx 'Unit=nodebb-nodejs.service' "$p"
+    grep -qx 'WantedBy=paths.target' "$p"
+    grep -qx 'ExecStart=/usr/bin/systemctl try-restart nodebb.service' "$O/usr/lib/systemd/system/nodebb-nodejs.service"
+    grep -qx 'enable nodebb-nodejs.path' "$O/usr/lib/systemd/system-preset/20-keel-nodebb.preset"
+    grep -qx 'systemctl enable nodebb-nodejs.path' "$R/conf.d/main"
 }
 
 @test "the routes go to 127.0.0.1:4567, show the replica notice, and pass socket.io" {

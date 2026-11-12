@@ -24,11 +24,13 @@ options:
     # the rule of LOGIN_RE in usr/lib/inithooks/bin/nodebb.py
     pattern: '^[A-Za-z0-9._-]{2,32}$'
 # The session cookie of NodeBB is signed with this secret. Both nodes of a
-# pair must hold the same value, so that a login survives a promote: the
-# session row replicates with the database. keel 0.23.96 renders only
-# root_password, db_password and app_password into the first boot, so this
-# value does not reach the hook yet; until keel renders it (NODEBB_SECRET),
-# each node makes its own secret.
+# pair must hold the same value, so that a login survives a promote. The
+# value lives in the database (the table keel_nodebb_secret), so it
+# replicates with the session rows, as the salts of WordPress do. When the
+# spec declares secrets.nodebb_secret, keel renders it as
+# KEEL_SECRET_NODEBB_SECRET, and the first writable boot stores it; else
+# that boot makes one. keel itself has no general path that gives one
+# generated value to both nodes; this layer does not need one.
 secrets:
   - name: nodebb_secret
     description: The secret that signs the NodeBB session cookie, the same on both nodes of a pair

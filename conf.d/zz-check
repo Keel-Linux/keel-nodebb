@@ -4,7 +4,7 @@
 # note 0082 says, and reports every problem it finds.
 #
 # - No Redis and no Apache: NodeBB uses the PostgreSQL of lnpp.
-# - Node.js is the Keel package keel-nodejs on line 24 (note 0083).
+# - Node.js is the Keel package of line 24, keel-nodejs-24 (note 0083).
 # - NodeBB 4.16.7 is in /var/www/nodebb, owned by root, with no file that
 #   group or others can write, and no container file of upstream.
 # - nodebb, a system user with no shell, owns only build/, logs/, the
@@ -40,15 +40,15 @@ for path in /usr/bin/redis-server /usr/sbin/apache2; do
     fi
 done
 
-status="$(awk '/^Package: keel-nodejs$/ { p = 1; next } /^$/ { p = 0 } p && /^Status:/ { sub(/^Status: /, ""); print }' \
+status="$(awk '/^Package: keel-nodejs-24$/ { p = 1; next } /^$/ { p = 0 } p && /^Status:/ { sub(/^Status: /, ""); print }' \
     "$root/var/lib/dpkg/status" 2> /dev/null)"
 if [ "$status" != "install ok installed" ]; then
-    fatal "keel-nodejs is not installed: Node.js comes from the Keel package (note 0083)"
+    fatal "keel-nodejs-24 is not installed: Node.js comes from the Keel package of line 24 (note 0083)"
 fi
-version="$(awk '/^Package: keel-nodejs$/ { p = 1; next } /^$/ { p = 0 } p && /^Version:/ { print $2 }' \
+version="$(awk '/^Package: keel-nodejs-24$/ { p = 1; next } /^$/ { p = 0 } p && /^Version:/ { print $2 }' \
     "$root/var/lib/dpkg/status" 2> /dev/null)"
 if [ -n "$version" ] && [ "${version%%.*}" != 24 ]; then
-    fatal "keel-nodejs $version is not on line 24"
+    fatal "keel-nodejs-24 $version is not a version of line 24"
 fi
 
 if ! grep -q '"version": "4.16.7"' "$root$NODEBB/install/package.json" 2> /dev/null; then
@@ -105,6 +105,9 @@ fi
 
 if [ ! -L "$root$WANTS/multi-user.target.wants/nodebb.service" ]; then
     fatal "nodebb.service is not enabled: nothing starts NodeBB"
+fi
+if [ ! -L "$root$WANTS/paths.target.wants/nodebb-nodejs.path" ]; then
+    fatal "nodebb-nodejs.path is not enabled: NodeBB keeps the old Node.js after an upgrade"
 fi
 if ! grep -qx 'ExecStart=/usr/bin/python3 /usr/lib/keel-nodebb/serve.py' \
         "$root/usr/lib/systemd/system/nodebb.service" 2> /dev/null; then

@@ -20,8 +20,10 @@ class Result:
 class Fake:
     """subprocess.run of the hook: psql as postgres and ./nodebb setup."""
 
-    def __init__(self, recovery="f", setup_code=0, psql_code=0):
+    def __init__(self, recovery="f", setup_code=0, psql_code=0, row=None):
         self.recovery = recovery
+        # the secret that keel_nodebb_secret holds already, or None
+        self.row = row
         self.setup_code = setup_code
         self.psql_code = psql_code
         self.calls = []
@@ -33,6 +35,12 @@ class Fake:
                 return Result(self.psql_code, "", "role error\n")
             if "SELECT pg_is_in_recovery()" in argv:
                 return Result(0, self.recovery + "\n")
+            sql = kwargs.get("input") or ""
+            if "keel_nodebb_secret" in sql:
+                if self.row is None:
+                    value = sql.split("VALUES (1, '", 1)[1].split("') ON CONFLICT", 1)[0]
+                    self.row = value.replace("''", "'")
+                return Result(0, self.row + "\n")
             return Result(0, "")
         return Result(self.setup_code)
 
@@ -126,6 +134,11 @@ def test_writable_node_sets_the_database_writes_config_and_runs_setup(hook, path
     assert conf["upload_path"] == str(paths / "uploads")
     assert conf["acpPluginInstallDisabled"] is True
     assert len(conf["secret"]) == 64
+    # the row holds the secret of config.json, and the SQL goes on standard input
+    assert run.row == conf["secret"]
+    assert "ON CONFLICT (id) DO NOTHING" in run.psql_stdin()[1]
+    for argv, _ in run.calls:
+        assert conf["secret"] not in " ".join(argv)
     assert oct(os.stat(paths / "nodebb" / "config.json").st_mode & 0o777) == "0o640"
     # nodebb owns config.json while setup runs, root owns it at the end
     assert calls[-2:] == [("config.json.keel-new", 111, 222), ("config.json.keel-new", 0, 222)]
@@ -150,11 +163,36 @@ def test_standby_writes_config_only(hook, paths):
     assert json.loads((paths / "nodebb" / "config.json").read_text())["postgres"]["password"] == "db-secret"
 
 
-def test_the_secret_of_the_spec_or_of_the_old_config_stays(hook, paths):
-    env = dict(ENV, NODEBB_SECRET="from-the-spec")
-    hook.configure(VALUES, env, run=Fake(), chown=lambda *a: None, owner=lambda u: (1, 2))
+def test_the_secret_of_the_spec_goes_into_the_row(hook, paths):
+    run = Fake()
+    env = dict(ENV, KEEL_SECRET_NODEBB_SECRET="it's-from-the-spec")
+    hook.configure(VALUES, env, run=run, chown=lambda *a: None, owner=lambda u: (1, 2))
+    assert run.row == "it's-from-the-spec"
+    assert "'it''s-from-the-spec'" in run.psql_stdin()[1]
+    assert json.loads((paths / "nodebb" / "config.json").read_text())["secret"] == "it's-from-the-spec"
+
+
+def test_a_second_boot_keeps_the_row(hook, paths):
+    # the row exists: neither a new secret nor the spec's replaces it
+    run = Fake(row="first-secret")
+    env = dict(ENV, KEEL_SECRET_NODEBB_SECRET="another")
+    hook.configure(VALUES, env, run=run, chown=lambda *a: None, owner=lambda u: (1, 2))
+    assert run.row == "first-secret"
+    assert json.loads((paths / "nodebb" / "config.json").read_text())["secret"] == "first-secret"
+
+
+def test_a_row_with_no_secret_is_an_error(hook, paths):
+    with pytest.raises(hook.HookError, match="gave no secret"):
+        hook.configure(VALUES, ENV, run=Fake(row=""), chown=lambda *a: None, owner=lambda u: (1, 2))
+
+
+def test_a_standby_takes_the_secret_of_the_spec_or_of_the_old_config(hook, paths):
+    env = {"DB_PASS": "x", "KEEL_SECRET_NODEBB_SECRET": "from-the-spec"}
+    run = Fake(recovery="t")
+    hook.configure(VALUES, env, run=run, chown=lambda *a: None, owner=lambda u: (1, 2))
+    assert run.row is None
     assert json.loads((paths / "nodebb" / "config.json").read_text())["secret"] == "from-the-spec"
-    hook.configure(VALUES, ENV, run=Fake(), chown=lambda *a: None, owner=lambda u: (1, 2))
+    hook.configure(VALUES, {"DB_PASS": "x"}, run=Fake(recovery="t"), chown=lambda *a: None, owner=lambda u: (1, 2))
     assert json.loads((paths / "nodebb" / "config.json").read_text())["secret"] == "from-the-spec"
 
 

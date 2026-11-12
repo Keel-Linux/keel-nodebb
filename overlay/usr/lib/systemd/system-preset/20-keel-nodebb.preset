@@ -1,3 +1,4 @@
 # keel-nodebb: systemd applies the presets on the first boot. NodeBB runs on
 # every node: usr/lib/keel-nodebb/serve.py starts it on the writable node only.
 enable nodebb.service
+enable nodebb-nodejs.path

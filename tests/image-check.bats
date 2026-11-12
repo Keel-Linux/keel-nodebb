@@ -21,12 +21,12 @@ setup() {
 # good: the commands that make a good tree, for a fakeroot session
 good='set -e
 rm -rf "$T"
-mkdir -p "$T/etc/systemd/system/multi-user.target.wants" "$T/var/lib/dpkg" "$T/var/www/nodebb/install" \
+mkdir -p "$T/etc/systemd/system/multi-user.target.wants" "$T/etc/systemd/system/paths.target.wants" "$T/var/lib/dpkg" "$T/var/www/nodebb/install" \
     "$T/var/www/nodebb/build/public" "$T/var/www/nodebb/logs" "$T/var/www/nodebb/node_modules/nodebb-plugin-emoji/build/emoji" \
     "$T/var/www/nodebb/node_modules/nodebb-plugin-emoji/build/lib" "$T/var/lib/nodebb/uploads" \
     "$T/usr/share/keel/appliances" "$T/usr/lib/systemd/system" "$T/etc/nginx/keel-default.d" "$T/etc/nginx/keel-front.d" "$T/etc/nginx/conf.d"
 printf "root:x:0:0::/root:/bin/bash\nnodebb:x:120:120::/var/lib/nodebb:/usr/sbin/nologin\n" > "$T/etc/passwd"
-printf "Package: keel-nodejs\nStatus: install ok installed\nVersion: 24.22.3+keel1\n\nPackage: other\nStatus: install ok installed\n" > "$T/var/lib/dpkg/status"
+printf "Package: keel-nodejs-24\nStatus: install ok installed\nVersion: 24.22.3+keel1\n\nPackage: other\nStatus: install ok installed\n" > "$T/var/lib/dpkg/status"
 echo "  \"version\": \"4.16.7\"," > "$T/var/www/nodebb/install/package.json"
 echo code > "$T/var/www/nodebb/app.js"
 echo lib > "$T/var/www/nodebb/node_modules/nodebb-plugin-emoji/build/lib/index.js"
@@ -41,6 +41,7 @@ chown 120:120 "$T/var/www/nodebb/node_modules/nodebb-plugin-emoji/build"
 cp "$OVERLAY/usr/share/keel/appliances/nodebb.yaml" "$T/usr/share/keel/appliances/"
 cp "$OVERLAY/usr/lib/systemd/system/nodebb.service" "$T/usr/lib/systemd/system/"
 ln -s /usr/lib/systemd/system/nodebb.service "$T/etc/systemd/system/multi-user.target.wants/nodebb.service"
+ln -s /usr/lib/systemd/system/nodebb-nodejs.path "$T/etc/systemd/system/paths.target.wants/nodebb-nodejs.path"
 for f in keel-default.d/60-keel-nodebb.conf keel-front.d/60-keel-nodebb.conf conf.d/keel-nodebb.conf; do
     cp "$OVERLAY/etc/nginx/$f" "$T/etc/nginx/$f"
 done
@@ -66,13 +67,16 @@ KEEL_CONF_ROOT=\"\$T\" \"$CHECK\""
     [[ "$output" == *"/usr/sbin/apache2 is in the image"* ]]
 }
 
-@test "no keel-nodejs, or a keel-nodejs of another line, fails" {
+@test "no keel-nodejs-24, the package of another line, or a version of another line fails" {
     check 'printf "Package: other\nStatus: install ok installed\n" > "$T/var/lib/dpkg/status"'
     [ "$status" -eq 1 ]
-    [[ "$output" == *"keel-nodejs is not installed"* ]]
+    [[ "$output" == *"keel-nodejs-24 is not installed"* ]]
+    check 'sed -i "s/^Package: keel-nodejs-24$/Package: keel-nodejs-26/" "$T/var/lib/dpkg/status"'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"keel-nodejs-24 is not installed"* ]]
     check 'sed -i "s/24.22.3+keel1/26.1.0+keel1/" "$T/var/lib/dpkg/status"'
     [ "$status" -eq 1 ]
-    [[ "$output" == *"keel-nodejs 26.1.0+keel1 is not on line 24"* ]]
+    [[ "$output" == *"keel-nodejs-24 26.1.0+keel1 is not a version of line 24"* ]]
 }
 
 @test "another NodeBB version or a container file fails" {
@@ -121,9 +125,10 @@ KEEL_CONF_ROOT=\"\$T\" \"$CHECK\""
 }
 
 @test "a unit that is not enabled or does not run serve.py fails" {
-    check 'rm "$T/etc/systemd/system/multi-user.target.wants/nodebb.service"; sed -i "s|^ExecStart=.*|ExecStart=/usr/bin/node loader.js|" "$T/usr/lib/systemd/system/nodebb.service"'
+    check 'rm "$T/etc/systemd/system/multi-user.target.wants/nodebb.service" "$T/etc/systemd/system/paths.target.wants/nodebb-nodejs.path"; sed -i "s|^ExecStart=.*|ExecStart=/usr/bin/node loader.js|" "$T/usr/lib/systemd/system/nodebb.service"'
     [ "$status" -eq 1 ]
     [[ "$output" == *"nodebb.service is not enabled"* ]]
+    [[ "$output" == *"nodebb-nodejs.path is not enabled"* ]]
     [[ "$output" == *"does not run usr/lib/keel-nodebb/serve.py"* ]]
 }
 

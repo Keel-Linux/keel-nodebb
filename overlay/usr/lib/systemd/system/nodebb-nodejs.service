@@ -1,0 +1,9 @@
+# Started by nodebb-nodejs.path. try-restart restarts NodeBB only when it
+# runs: on a standby nodebb.service runs serve.py, which starts NodeBB on
+# the writable node only, so a restart there is harmless.
+[Unit]
+Description=Restart NodeBB on the new Keel Node.js binary
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl try-restart nodebb.service

@@ -10,9 +10,10 @@ Environment:
     APP_PASS       the password of the admin user (secrets.app_password)
     DB_PASS        the password of the role nodebb (secrets.db_password of
                    lnpp, which a pair shares)
-    NODEBB_SECRET  the secret that signs the session cookie; when it is
-                   not set, the secret of an existing config.json stays,
-                   else the hook makes a new one
+    KEEL_SECRET_NODEBB_SECRET
+                   the secret that signs the session cookie, when the spec
+                   declares secrets.nodebb_secret (keel renders a manifest
+                   secret with the prefix KEEL_SECRET_)
 
 On the node whose PostgreSQL accepts writes (simple, or the primary of a
 pair) the hook sets the role nodebb and its password, makes the database
@@ -21,6 +22,13 @@ writes config.json only: the database comes from the primary. The
 passwords go to psql on standard input and to NodeBB in the environment,
 never in the arguments, which the process list shows. At its end the hook
 writes READY, and only then does serve.py start NodeBB.
+
+The session secret lives in the database, in the one-row table
+keel_nodebb_secret, so a pair shares it with the session rows, as
+WordPress keeps its salts in its database. The first writable boot writes
+the row: the secret of the spec, else a new one. No later boot changes
+it. serve.py gives the secret of the row to NodeBB in its environment,
+which NodeBB reads before config.json.
 """
 
 import base64
@@ -53,6 +61,17 @@ SELECT 'CREATE ROLE nodebb LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE r
 ALTER ROLE nodebb LOGIN PASSWORD '%s';
 SELECT 'CREATE DATABASE nodebb OWNER nodebb ENCODING ''UTF8'' TEMPLATE template0'
   WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'nodebb')\\gexec
+"""
+# The row is written one time: ON CONFLICT DO NOTHING keeps the secret of
+# the first writable boot. The output is the secret that the row holds.
+SECRET_SQL = """\
+SET client_min_messages = warning;
+CREATE TABLE IF NOT EXISTS keel_nodebb_secret (
+  id smallint PRIMARY KEY CHECK (id = 1), secret text NOT NULL CHECK (secret <> ''));
+ALTER TABLE keel_nodebb_secret OWNER TO nodebb;
+REVOKE ALL ON keel_nodebb_secret FROM PUBLIC;
+INSERT INTO keel_nodebb_secret (id, secret) VALUES (1, '%s') ON CONFLICT (id) DO NOTHING;
+SELECT secret FROM keel_nodebb_secret WHERE id = 1;
 """
 
 
@@ -119,6 +138,15 @@ def is_writable(run=subprocess.run):
 def set_database(db_pass, run=subprocess.run):
     verifier = scram_verifier(db_pass)
     run_postgres(["-d", "postgres"], stdin=DATABASE_SQL % verifier, run=run)
+
+
+def store_secret(candidate, run=subprocess.run):
+    """The secret of the row, which the first writable boot writes"""
+    out = run_postgres(["-d", DATABASE], stdin=SECRET_SQL % candidate.replace("'", "''"), run=run)
+    lines = out.splitlines()
+    if not lines or not lines[-1]:
+        raise HookError("the table keel_nodebb_secret gave no secret")
+    return lines[-1]
 
 
 def read_config(path=None):
@@ -237,14 +265,20 @@ def configure(values, env, run=subprocess.run, chown=os.chown, owner=owner_of):
     db_pass = given(env.get("DB_PASS"))
     if not db_pass:
         raise HookError("no DB_PASS: the role nodebb needs the password of the database")
-    secret = given(env.get("NODEBB_SECRET")) or read_config().get("secret") or secrets.token_hex(32)
-    config = build_config(domain, db_pass, secret)
+    spec_secret = given(env.get("KEEL_SECRET_NODEBB_SECRET"))
     uid, gid = owner(SERVICE_USER)
     writable = is_writable(run=run)
     if writable:
         if not password:
             raise HookError("no APP_PASS: the admin user of NodeBB needs a password")
         set_database(db_pass, run=run)
+        secret = store_secret(spec_secret or secrets.token_hex(32), run=run)
+    else:
+        # serve.py never starts NodeBB here: after a promote it gives the
+        # secret of the replicated row in the environment
+        secret = spec_secret or read_config().get("secret") or secrets.token_hex(32)
+    config = build_config(domain, db_pass, secret)
+    if writable:
         make_uploads((uid, gid), chown=chown)
         # setup runs as nodebb and rewrites config.json, so nodebb owns it
         # while setup runs

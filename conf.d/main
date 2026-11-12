@@ -3,6 +3,8 @@
 # the lnpp layer, with the Node.js of the Keel package keel-nodejs (note
 # 0083). It runs in the image chroot, after the overlay is in place.
 #
+# 0. Node.js is the package of one line, keel-nodejs-24 (note 0083; one
+#    package for each line, the maintainer on 2026-11-12).
 # 1. The code is the release tarball of NodeBB at a pinned sha256, owned by
 #    root in /var/www/nodebb. The dependencies come from the reviewed lock
 #    file of this layer (usr/share/keel-nodebb/package-lock.json) with
@@ -33,7 +35,7 @@ if [ -n "${FAB_HTTP_PROXY:-}" ]; then
 fi
 
 # Node.js is the Keel package, never a download of this layer (note 0083)
-dpkg-query -W -f '${Status}\n' keel-nodejs | grep -qx 'install ok installed'
+dpkg-query -W -f '${Status}\n' "keel-nodejs-$NODE_LINE" | grep -qx 'install ok installed'
 [ "$(node --version | cut -d. -f1)" = "v$NODE_LINE" ]
 
 adduser --system --group --home /var/lib/nodebb --no-create-home \
@@ -94,9 +96,9 @@ trap 'pg_ctlcluster --skip-systemctl-redirect "$PGVER" main stop || true' EXIT
 set +x
 APP_PASS="$(openssl rand -hex 24)"
 DB_PASS="$(openssl rand -hex 24)"
-export APP_PASS DB_PASS NODEBB_SECRET=build-time-only
+export APP_PASS DB_PASS KEEL_SECRET_NODEBB_SECRET=build-time-only
 /usr/lib/inithooks/bin/nodebb.py --domain=nodebb.invalid --email=admin@nodebb.invalid --admin=admin
-unset APP_PASS DB_PASS NODEBB_SECRET
+unset APP_PASS DB_PASS KEEL_SECRET_NODEBB_SECRET
 set -x
 test -d build/public
 # The active set of this build: serve.py builds again when the set of the
@@ -113,6 +115,10 @@ trap - EXIT
 # NodeBB runs on every node: usr/lib/keel-nodebb/serve.py starts it on the
 # node whose PostgreSQL is writable, after the first boot hook.
 systemctl enable nodebb.service
+# NodeBB keeps the old Node.js binary until it restarts, and keel-nodejs-24
+# has no maintainer script (the maintainer, 2026-11-12). This path unit of
+# the layer restarts NodeBB when the binary changes.
+systemctl enable nodebb-nodejs.path
 
 # The front site of Keel Web must include keel-front.d, so an upload is not
 # stopped at 1 MB behind Anubis (as keel-odoo checks it).

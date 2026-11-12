@@ -7,8 +7,10 @@
    image: NodeBB uses PostgreSQL in every mode (handbook note 0082). */
 
 /* Node.js 24, the Keel package of the official binary (note 0083), from
-   the Keel archive. No layer downloads Node.js itself. */
-keel-nodejs
+   the Keel archive. No layer downloads Node.js itself. The layer names its
+   line: each line is its own package, and the lines conflict, so a change
+   of line is a change of this file and a new commissioning. */
+keel-nodejs-24
 
 /* the build fetches the NodeBB release */
 curl

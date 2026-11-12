@@ -16,7 +16,13 @@ nodebb.service. It runs on every node as the user nodebb:
      build on this node (BUILD_STAMP), `./nodebb build` builds the assets
      again. An admin who activates a bundled plugin writes the database,
      and the build of each node must follow;
-  3. `node loader.js --no-daemon --no-silent` starts the server;
+  3. it reads the session secret from the one-row table
+     keel_nodebb_secret (the first boot writes it; a pair replicates it)
+     and gives it to NodeBB in the environment variable `secret`, which
+     NodeBB reads before config.json (app.js: nconf argv, env, then the
+     file). The secret is not an argument, so the process list does not
+     show it, and nothing writes it to the journal;
+  4. `node loader.js --no-daemon --no-silent` starts the server;
 - when the answer is no, it stops the child at once. A fenced or old
   primary is in recovery, so it never serves;
 - when the server does not answer, it changes nothing, so a restart of
@@ -57,6 +63,7 @@ ACTIVE_SET = (
     " UNION ALL SELECT 'theme:' || (h.data->>'theme:id') FROM legacy_hash h"
     " WHERE h._key = 'config' AND h.data ? 'theme:id') s")
 NODE = "/usr/bin/node"
+SECRET = "SELECT secret FROM keel_nodebb_secret WHERE id = 1"
 UPGRADE = ["./nodebb", "-y", "upgrade", "-s"]
 BUILD = ["./nodebb", "build"]
 SERVER = [NODE, "loader.js", "--no-daemon", "--no-silent"]
@@ -145,37 +152,50 @@ def write_stamp(value, path=BUILD_STAMP):
         stamp.write(value + "\n")
 
 
+def session_secret(query=psql):
+    """The secret of the row, or None. A problem names no value."""
+    secret, error = query(SECRET)
+    if secret is None:
+        say(4, "the session secret is not known: %s" % error)
+        return None
+    if not secret:
+        say(4, "keel_nodebb_secret holds no secret: the first boot of the primary writes it")
+        return None
+    return secret
+
+
 def prepare(query=psql, run=subprocess.run, stamp=read_stamp, set_stamp=write_stamp):
-    """The steps before a start, on the writable node. True when NodeBB can
-    start: the schema is current and the build fits the active set."""
+    """The steps before a start, on the writable node. The session secret
+    when NodeBB can start (the schema is current, the build fits the active
+    set and the row holds a secret), else None."""
     try:
         upgrade = run(UPGRADE, cwd=NODEBB_DIR, timeout=PREPARE_TIMEOUT, check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
         say(4, "the schema upgrade did not run: %s" % error)
-        return False
+        return None
     if upgrade.returncode != 0:
         say(4, "the schema upgrade failed with exit %d" % upgrade.returncode)
-        return False
+        return None
     active, error = query(ACTIVE_SET)
     if active is None:
         say(4, "the active plugins are not known: %s" % error)
-        return False
+        return None
     if stamp() == active:
-        return True
+        return session_secret(query)
     say(5, "the active plugins and theme changed, so the assets are built again")
     try:
         build = run(BUILD, cwd=NODEBB_DIR, timeout=PREPARE_TIMEOUT, check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
         say(4, "the build did not run: %s" % error)
-        return False
+        return None
     if build.returncode != 0:
         say(4, "the build failed with exit %d" % build.returncode)
-        return False
+        return None
     try:
         set_stamp(active)
     except OSError as error:
         say(4, "the build stamp was not written: %s" % error)
-    return True
+    return session_secret(query)
 
 
 class Supervisor:
@@ -209,10 +229,11 @@ class Supervisor:
                 self.mark(writable)
         action = decide(self.is_ready(), writable, self.child is not None)
         if action == "start" and self.clock() >= self.not_before:
-            if not self.prepare():
+            secret = self.prepare()
+            if not secret:
                 self.not_before = self.clock() + RESTART_DELAY
                 return
-            self.child = self.start_child()
+            self.child = self.start_child(secret)
             say(5, "serving")
         elif action == "stop":
             self.stop_all("the node is not writable")
@@ -249,9 +270,11 @@ def child_alive(child):
     return child.poll() is None
 
 
-def start_child(popen=subprocess.Popen):
-    """loader.js in a new session, so a stop reaches every worker."""
-    return popen(SERVER, cwd=NODEBB_DIR, start_new_session=True)
+def start_child(secret, popen=subprocess.Popen, environ=os.environ):
+    """loader.js in a new session, so a stop reaches every worker. The
+    session secret goes in the environment, never in the arguments."""
+    env = dict(environ, secret=secret)
+    return popen(SERVER, cwd=NODEBB_DIR, start_new_session=True, env=env)
 
 
 def main():  # pragma: no cover

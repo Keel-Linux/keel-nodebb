@@ -131,48 +131,63 @@ class Steps:
         return Result(self.codes.get(name, 0))
 
 
-def test_prepare_with_the_same_set_does_not_build(serve):
+def answers(active, secret=("s3cret", "")):
+    """A fake of psql: the active set, and the secret of the row."""
+    return lambda sql: secret if sql == "SELECT secret FROM keel_nodebb_secret WHERE id = 1" else (active, "")
+
+
+def test_prepare_with_the_same_set_does_not_build_and_gives_the_secret(serve):
     run = Steps()
-    assert serve.prepare(query=lambda sql: ("p1 theme:t", ""), run=run, stamp=lambda: "p1 theme:t",
-                         set_stamp=pytest.fail) is True
+    assert serve.prepare(query=answers("p1 theme:t"), run=run, stamp=lambda: "p1 theme:t",
+                         set_stamp=pytest.fail) == "s3cret"
     assert run.calls == ["upgrade"]
 
 
 def test_prepare_with_another_set_builds_and_writes_the_stamp(serve):
     run, written = Steps(), []
-    assert serve.prepare(query=lambda sql: ("p1 p2", ""), run=run, stamp=lambda: "p1",
-                         set_stamp=written.append) is True
+    assert serve.prepare(query=answers("p1 p2"), run=run, stamp=lambda: "p1",
+                         set_stamp=written.append) == "s3cret"
     assert run.calls == ["upgrade", "build"]
     assert written == ["p1 p2"]
 
 
+def test_prepare_with_no_secret_row_does_not_start(serve, capsys):
+    q = answers("p1", secret=(None, 'relation "keel_nodebb_secret" does not exist'))
+    assert serve.prepare(query=q, run=Steps(), stamp=lambda: "p1") is None
+    assert "session secret is not known" in capsys.readouterr().err
+    assert serve.prepare(query=answers("p1", secret=("", "")), run=Steps(), stamp=lambda: "p1") is None
+    err = capsys.readouterr().err
+    assert "holds no secret" in err
+    assert "s3cret" not in err
+
+
 def test_prepare_stops_when_the_upgrade_fails(serve, capsys):
-    assert serve.prepare(query=pytest.fail, run=Steps({"upgrade": 1})) is False
+    assert serve.prepare(query=pytest.fail, run=Steps({"upgrade": 1})) is None
     assert "schema upgrade failed with exit 1" in capsys.readouterr().err
     run = Steps(raises={"upgrade": FileNotFoundError("node")})
-    assert serve.prepare(query=pytest.fail, run=run) is False
+    assert serve.prepare(query=pytest.fail, run=run) is None
     assert "did not run" in capsys.readouterr().err
 
 
 def test_prepare_stops_when_the_active_set_is_not_known(serve, capsys):
-    assert serve.prepare(query=lambda sql: (None, "down"), run=Steps()) is False
+    assert serve.prepare(query=lambda sql: (None, "down"), run=Steps()) is None
     assert "active plugins are not known" in capsys.readouterr().err
 
 
 def test_prepare_stops_when_the_build_fails(serve, capsys):
-    q = lambda sql: ("p2", "")  # noqa: E731
-    assert serve.prepare(query=q, run=Steps({"build": 2}), stamp=lambda: "p1") is False
+    q = answers("p2")
+    assert serve.prepare(query=q, run=Steps({"build": 2}), stamp=lambda: "p1") is None
     assert "build failed with exit 2" in capsys.readouterr().err
     run = Steps(raises={"build": subprocess.TimeoutExpired("build", 1)})
-    assert serve.prepare(query=q, run=run, stamp=lambda: "p1") is False
+    assert serve.prepare(query=q, run=run, stamp=lambda: "p1") is None
     assert "build did not run" in capsys.readouterr().err
 
 
 def test_prepare_starts_when_the_stamp_cannot_be_written(serve, capsys):
     def no_stamp(value):
         raise PermissionError("read-only")
-    assert serve.prepare(query=lambda sql: ("p2", ""), run=Steps(), stamp=lambda: None,
-                         set_stamp=no_stamp) is True
+    assert serve.prepare(query=answers("p2"), run=Steps(), stamp=lambda: None,
+                         set_stamp=no_stamp) == "s3cret"
     assert "stamp was not written" in capsys.readouterr().err
 
 
@@ -180,7 +195,7 @@ class World:
     """The fakes of a Supervisor: a role that the test sets, a clock, a
     child that lives until the test ends it."""
 
-    def __init__(self, serve, prepared=True):
+    def __init__(self, serve, prepared="s3cret"):
         self.writable = True
         self.ready = True
         self.prepared = prepared
@@ -190,11 +205,13 @@ class World:
         self.stopped = []
         self.marks = []
         poller = types.SimpleNamespace(writable=lambda: self.writable)
+        self.secrets = []
         self.sup = serve.Supervisor(poller, lambda: self.ready, lambda: self.prepared, self.start,
                                     self.stop, lambda c: c in self.alive, lambda: self.now,
                                     self.marks.append)
 
-    def start(self):
+    def start(self, secret):
+        self.secrets.append(secret)
         child = len(self.started) + 1
         self.started.append(child)
         self.alive.add(child)
@@ -209,6 +226,7 @@ def test_supervisor_starts_on_a_writable_node(serve):
     w = World(serve)
     w.sup.tick()
     assert w.started == [1]
+    assert w.secrets == ["s3cret"]
     assert w.marks == [True]
     w.sup.tick()
     assert w.started == [1]
@@ -260,10 +278,10 @@ def test_supervisor_restarts_an_ended_server_after_the_delay(serve, capsys):
 
 
 def test_supervisor_waits_after_a_failed_preparation(serve):
-    w = World(serve, prepared=False)
+    w = World(serve, prepared=None)
     w.sup.tick()
     assert w.started == []
-    w.prepared = True
+    w.prepared = "s3cret"
     w.sup.tick()
     assert w.started == []
     w.now += serve.RESTART_DELAY
@@ -335,7 +353,11 @@ def test_child_alive_and_start_child(serve):
     assert serve.child_alive(Child()) is True
     assert serve.child_alive(Child(ends_after=1)) is False
     calls = []
-    serve.start_child(popen=lambda argv, **kwargs: calls.append((argv, kwargs)))
+    serve.start_child("s3cret", popen=lambda argv, **kwargs: calls.append((argv, kwargs)),
+                      environ={"PATH": "/usr/bin", "HOME": "/var/lib/nodebb"})
     argv, kwargs = calls[0]
     assert argv == ["/usr/bin/node", "loader.js", "--no-daemon", "--no-silent"]
-    assert kwargs == {"cwd": "/var/www/nodebb", "start_new_session": True}
+    assert "s3cret" not in " ".join(argv)
+    assert kwargs["cwd"] == "/var/www/nodebb" and kwargs["start_new_session"] is True
+    # NodeBB reads `secret` from the environment before config.json
+    assert kwargs["env"] == {"PATH": "/usr/bin", "HOME": "/var/lib/nodebb", "secret": "s3cret"}
