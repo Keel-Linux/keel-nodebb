@@ -1,3 +1,30 @@
+turnkey-nodebb-19.0 (7) turnkey; urgency=low
+
+  * Handbook note 0082, steps 1 to 5: the layer is built on lnpp, not on
+    the nodejs-nginx stack. NodeBB 4.16.7 (was 4.10.3) runs on the
+    PostgreSQL of lnpp in every mode. Redis, the own Nginx site, the build
+    time apt block and the copy of the stack layer are gone.
+  * Node.js 24 comes from the Keel package keel-nodejs (note 0083), not
+    from Debian. The dependencies come from a reviewed lock file with npm
+    ci. The code in /var/www/nodebb is owned by root; NodeBB writes only
+    build/, logs/, the pidfile, the emoji data of nodebb-plugin-emoji and
+    /var/lib/nodebb/uploads, which a pair replicates.
+  * usr/lib/keel-nodebb/serve.py runs NodeBB on the node whose PostgreSQL
+    accepts writes, runs the schema upgrade before a start, builds the
+    assets again when the active plugins change, and shows the replica
+    notice on a standby.
+  * The first boot hook 45nodebb and nodebb.py write config.json, set the
+    role nodebb with a SCRAM verifier, and run the setup with the admin
+    answers in the environment. The routes are in keel-web's include
+    directories. The manifest nodebb.yaml and the commissioning contract
+    are new.
+  * Found and fixed on a real node (CT 9385, BR1, 2026-11-11): the emoji
+    plugin writes its build directory at the first start, the setup copies
+    the favicon into uploads/system with no mkdir, the tarball modes were
+    0664 and 0775, and a worker of a killed loader kept port 4567.
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Thu, 12 Nov 2026 00:10:00 +0000
+
 turnkey-nodebb-19.0 (6) turnkey; urgency=low
 
   * The overlay no longer ships /etc/apt/sources.list.d/keel.sources

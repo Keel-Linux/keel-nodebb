@@ -121,7 +121,8 @@ def set_database(db_pass, run=subprocess.run):
     run_postgres(["-d", "postgres"], stdin=DATABASE_SQL % verifier, run=run)
 
 
-def read_config(path=CONFIG):
+def read_config(path=None):
+    path = path or CONFIG
     try:
         with open(path) as conf:
             return json.load(conf)
@@ -152,9 +153,10 @@ def build_config(domain, db_pass, secret):
     }
 
 
-def write_config(config, owner, path=CONFIG, chown=os.chown):
+def write_config(config, owner, path=None, chown=os.chown):
     """Write config.json with mode 0640, owned by OWNER (uid, gid), in one
     rename, so NodeBB never reads half a file."""
+    path = path or CONFIG
     tmp = path + ".keel-new"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640)
     with os.fdopen(fd, "w") as out:
@@ -165,8 +167,9 @@ def write_config(config, owner, path=CONFIG, chown=os.chown):
     os.replace(tmp, path)
 
 
-def setup_command(nodebb_dir=NODEBB_DIR):
+def setup_command(nodebb_dir=None):
     """./nodebb setup; with the assets of the image, no build."""
+    nodebb_dir = nodebb_dir or NODEBB_DIR
     command = ["/usr/sbin/runuser", "-u", SERVICE_USER, "--", "./nodebb", "setup"]
     if os.path.isdir(os.path.join(nodebb_dir, "build", "public")):
         command.append("--skip-build")
@@ -197,20 +200,27 @@ def owner_of(user):
     return entry.pw_uid, entry.pw_gid
 
 
-def make_uploads(owner, path=UPLOADS, chown=os.chown):
+def make_uploads(owner, path=None, chown=os.chown):
     """uploads/system: the setup copies the favicon there and makes no
     directory for it (src/install.js, CT 9385, 2026-11-11). Every other
     upload makes its own directory (src/file.js)."""
-    system = os.path.join(path, "system")
+    system = os.path.join(path or UPLOADS, "system")
     os.makedirs(system, exist_ok=True)
     # makedirs applies the umask to its mode
     os.chmod(system, 0o755)
     chown(system, *owner)
 
 
-def mark_ready(path=READY):
-    with open(path, "w"):
+def mark_ready(path=None):
+    with open(path or READY, "w"):
         pass
+
+
+def host_of(domain):
+    """The domain without its port: [2001:db8::1]:8443 gives [2001:db8::1]."""
+    if domain.startswith("["):
+        return domain[:domain.index("]") + 1]
+    return domain.split(":")[0]
 
 
 def configure(values, env, run=subprocess.run, chown=os.chown, owner=owner_of):
@@ -220,7 +230,7 @@ def configure(values, env, run=subprocess.run, chown=os.chown, owner=owner_of):
     admin = given(values.get("admin")) or "admin"
     if not LOGIN_RE.match(admin):
         raise HookError("the admin login %r has a character that NodeBB refuses" % admin)
-    email = given(values.get("email")) or "admin@%s" % domain.strip("[]").split(":")[0]
+    email = given(values.get("email")) or "admin@%s" % host_of(domain)
     if not EMAIL_RE.match(email):
         raise HookError("the admin email %r is not an address" % email)
     password = given(env.get("APP_PASS"))

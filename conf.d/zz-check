@@ -1,0 +1,156 @@
+#!/bin/bash -e
+# Run by fab in the image chroot of the nodebb layer, after conf.d/main. It
+# changes nothing: it fails the build when the image is not what handbook
+# note 0082 says, and reports every problem it finds.
+#
+# - No Redis and no Apache: NodeBB uses the PostgreSQL of lnpp.
+# - Node.js is the Keel package keel-nodejs on line 24 (note 0083).
+# - NodeBB 4.16.7 is in /var/www/nodebb, owned by root, with no file that
+#   group or others can write, and no container file of upstream.
+# - nodebb, a system user with no shell, owns only build/, logs/, the
+#   pidfile and the emoji data of nodebb-plugin-emoji (conf.d/main).
+# - No config.json, no ready mark and no upload is in the image: the first
+#   boot writes them from the spec.
+# - nodebb.service is enabled and runs usr/lib/keel-nodebb/serve.py.
+# - The routes are in keel-web's include directories.
+# - The check page of lnpp is not in the image.
+# - nodebb.yaml is there, and each path that it replicates is a directory
+#   that nodebb owns.
+#
+# KEEL_CONF_ROOT is the tree to work on, empty (the chroot's /) in a build;
+# tests/image-check.bats sets it to a scratch tree.
+root="${KEEL_CONF_ROOT:-}"
+failed=0
+NODEBB=/var/www/nodebb
+APPLIANCES=/usr/share/keel/appliances
+WANTS=/etc/systemd/system
+
+fatal() {
+    echo "FATAL: $*" >&2
+    failed=1
+}
+
+uid_of() {
+    awk -F: -v u="$1" '$1 == u { print $3 }' "$root/etc/passwd" 2> /dev/null
+}
+
+for path in /usr/bin/redis-server /usr/sbin/apache2; do
+    if [ -e "$root$path" ]; then
+        fatal "$path is in the image: NodeBB uses PostgreSQL behind Nginx (note 0082)"
+    fi
+done
+
+status="$(awk '/^Package: keel-nodejs$/ { p = 1; next } /^$/ { p = 0 } p && /^Status:/ { sub(/^Status: /, ""); print }' \
+    "$root/var/lib/dpkg/status" 2> /dev/null)"
+if [ "$status" != "install ok installed" ]; then
+    fatal "keel-nodejs is not installed: Node.js comes from the Keel package (note 0083)"
+fi
+version="$(awk '/^Package: keel-nodejs$/ { p = 1; next } /^$/ { p = 0 } p && /^Version:/ { print $2 }' \
+    "$root/var/lib/dpkg/status" 2> /dev/null)"
+if [ -n "$version" ] && [ "${version%%.*}" != 24 ]; then
+    fatal "keel-nodejs $version is not on line 24"
+fi
+
+if ! grep -q '"version": "4.16.7"' "$root$NODEBB/install/package.json" 2> /dev/null; then
+    fatal "NodeBB 4.16.7 is not in $NODEBB"
+fi
+for path in Dockerfile dev.Dockerfile docker-compose.yml .docker .dockerignore; do
+    if [ -e "$root$NODEBB/$path" ]; then
+        fatal "$NODEBB/$path is in the image: no container file in Keel"
+    fi
+done
+if [ -d "$root$NODEBB" ]; then
+    writable="$(find "$root$NODEBB" -perm /022 ! -type l -print -quit)"
+    if [ -n "$writable" ]; then
+        fatal "${writable#"$root"} can be written by group or others"
+    fi
+fi
+
+user="$(grep '^nodebb:' "$root/etc/passwd" 2> /dev/null || true)"
+if [ -z "$user" ]; then
+    fatal "nodebb is not a system user of the image"
+elif [ "$(cut -d: -f7 <<< "$user")" != /usr/sbin/nologin ]; then
+    fatal "nodebb has a shell: $user"
+fi
+nodebb_uid="$(uid_of nodebb)"
+allowed="$NODEBB/build $NODEBB/logs $NODEBB/pidfile $NODEBB/node_modules/nodebb-plugin-emoji/build"
+if [ -n "$nodebb_uid" ] && [ -d "$root$NODEBB" ]; then
+    while read -r path; do
+        rel="${path#"$root"}"
+        case " $allowed " in
+            *" $rel "*) continue ;;
+        esac
+        case "$rel" in
+            "$NODEBB"/build/* | "$NODEBB"/logs/* | "$NODEBB"/node_modules/nodebb-plugin-emoji/build/emoji*) continue ;;
+        esac
+        fatal "nodebb owns $rel: only build/, logs/, the pidfile and the emoji data are its own (note 0082)"
+    done < <(find "$root$NODEBB" -uid "$nodebb_uid" -print)
+    for path in $allowed; do
+        if [ ! -e "$root$path" ]; then
+            fatal "$path is not in the image: NodeBB writes it"
+        elif [ "$(stat -c %u "$root$path")" != "$nodebb_uid" ]; then
+            fatal "$path is not owned by nodebb: NodeBB cannot write it"
+        fi
+    done
+fi
+
+for path in "$NODEBB/config.json" /var/lib/keel-nodebb/ready; do
+    if [ -e "$root$path" ]; then
+        fatal "$path is in the image: the first boot writes it from the spec"
+    fi
+done
+if [ -n "$(ls -A "$root/var/lib/nodebb/uploads" 2> /dev/null)" ]; then
+    fatal "/var/lib/nodebb/uploads is not empty: an upload of the build is in the image"
+fi
+
+if [ ! -L "$root$WANTS/multi-user.target.wants/nodebb.service" ]; then
+    fatal "nodebb.service is not enabled: nothing starts NodeBB"
+fi
+if ! grep -qx 'ExecStart=/usr/bin/python3 /usr/lib/keel-nodebb/serve.py' \
+        "$root/usr/lib/systemd/system/nodebb.service" 2> /dev/null; then
+    fatal "nodebb.service does not run usr/lib/keel-nodebb/serve.py"
+fi
+for path in /etc/nginx/keel-default.d/60-keel-nodebb.conf /etc/nginx/keel-front.d/60-keel-nodebb.conf \
+        /etc/nginx/conf.d/keel-nodebb.conf; do
+    if [ ! -f "$root$path" ]; then
+        fatal "$path is not in the image"
+    fi
+done
+if [ -e "$root/etc/nginx/sites-enabled/nodebb" ] || [ -e "$root/etc/nginx/sites-available/nodebb" ]; then
+    fatal "the own Nginx site of the old layer is in the image: the routes are keel-web's"
+fi
+
+for path in /usr/lib/inithooks/firstboot.d/40lnpp-check \
+        /etc/nginx/keel-default.d/50-keel-lnpp.conf \
+        /usr/share/keel-lnpp \
+        /usr/lib/systemd/system/keel-lnpp-check.socket \
+        /usr/lib/systemd/system/keel-lnpp-check.service \
+        "$WANTS/sockets.target.wants/keel-lnpp-check.socket"; do
+    if [ -e "$root$path" ] || [ -L "$root$path" ]; then
+        fatal "$path is in the image: the check page of lnpp is not part of NodeBB"
+    fi
+done
+if grep -q '^keel-check:' "$root/etc/passwd" 2> /dev/null; then
+    fatal "keel-check is a user of the image: the check page of lnpp is not part of NodeBB"
+fi
+
+manifest="$root$APPLIANCES/nodebb.yaml"
+if [ ! -f "$manifest" ]; then
+    fatal "$APPLIANCES/nodebb.yaml is not in the image"
+else
+    if ! replicated="$(python3 -c 'import sys, yaml
+state = (yaml.safe_load(open(sys.argv[1])) or {}).get("state") or {}
+print("\n".join(e["path"] if isinstance(e, dict) else e
+                for e in state.get("replicate") or []))' "$manifest" 2> /dev/null)"; then
+        fatal "$APPLIANCES/nodebb.yaml: state.replicate cannot be read"
+    fi
+    for path in $replicated; do
+        if [ ! -d "$root$path" ]; then
+            fatal "$path is not a directory of the image: nodebb.yaml replicates it"
+        elif [ "$(stat -c %u "$root$path")" != "$nodebb_uid" ]; then
+            fatal "$path is not owned by nodebb: NodeBB cannot write an upload"
+        fi
+    done
+fi
+
+exit "$failed"

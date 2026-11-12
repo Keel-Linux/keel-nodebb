@@ -215,14 +215,14 @@ class Supervisor:
             self.child = self.start_child()
             say(5, "serving")
         elif action == "stop":
-            self.stop_all()
+            self.stop_all("the node is not writable")
 
-    def stop_all(self):
+    def stop_all(self, reason):
         if self.child is None:
             return
         self.stop_child(self.child)
         self.child = None
-        say(5, "stopped, the node is not writable")
+        say(5, "stopped, %s" % reason)
 
 
 def stop_child(child, clock=time.monotonic, sleep=time.sleep, killpg=os.killpg):
@@ -264,7 +264,7 @@ def main():  # pragma: no cover
     while not stopping:
         supervisor.tick()
         time.sleep(POLL_SECONDS)
-    supervisor.stop_all()
+    supervisor.stop_all("the unit stops")
     return 0
 
 

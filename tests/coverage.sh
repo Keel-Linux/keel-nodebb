@@ -1,12 +1,11 @@
 #!/bin/bash
-# Line coverage of the shell this project writes, measured with kcov over
-# the bats suite (decision 0004). The measured files are the first boot
-# library, the first boot hook itself, the logic of the boot test, the build
-# time archive check and the build time package check; the 95 percent bar of
-# decision 0003 applies to all of them. Exits 1 below the threshold, 2 when a
-# tool is missing. tests/boot-test.sh is the thin main that runs keel and LXC
-# as root and is exercised by the container run in test-appliance.yml, not
-# measured here; conf.d/main needs a chroot, a network and half an hour.
+# Line coverage of the shell this layer writes, measured with kcov over the
+# bats suite (decision 0004). The measured files are the first boot hook
+# (firstboot.d/45nodebb), the image check (conf.d/zz-check) and the logic of
+# the boot test (tests/lib/boot-test-lib.sh). Exits 1 below the threshold, 2
+# when a tool is missing. tests/boot-test.sh is the thin main that runs keel
+# and LXC as root; conf.d/main is a build time script, run on a real node.
+# The Python files are measured by the python job (tests/python).
 #
 #   tests/coverage.sh [THRESHOLD]
 set -euo pipefail
@@ -14,7 +13,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 threshold="${1:-${COVERAGE_THRESHOLD:-95}}"
 
-for tool in kcov bats python3; do
+for tool in kcov bats python3 fakeroot; do
     if ! command -v "$tool" >/dev/null; then
         echo "$tool not found (apt-get install $tool)" >&2
         exit 2
@@ -24,7 +23,7 @@ done
 report="${COVERAGE_DIR:-$(mktemp -d)}"
 # The include pattern is the whitelist, so no exclude pattern is needed; an
 # exclude of /tests/ would drop tests/lib/boot-test-lib.sh with it.
-kcov --include-pattern=/lib/nodebb.sh,/firstboot.d/40nodebb,/tests/lib/boot-test-lib.sh,/bin/keel-archive-check,/conf.d/zz-project-packages \
+kcov --include-pattern=/firstboot.d/45nodebb,/conf.d/zz-check,/tests/lib/boot-test-lib.sh \
     "$report" bats "$here"
 
 json="$(find "$report" -mindepth 2 -maxdepth 2 -name coverage.json -not -path "*/kcov-merged/*" | head -1)"
