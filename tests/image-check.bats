@@ -42,6 +42,8 @@ cp "$OVERLAY/usr/share/keel/appliances/nodebb.yaml" "$T/usr/share/keel/appliance
 cp "$OVERLAY/usr/lib/systemd/system/nodebb.service" "$T/usr/lib/systemd/system/"
 ln -s /usr/lib/systemd/system/nodebb.service "$T/etc/systemd/system/multi-user.target.wants/nodebb.service"
 ln -s /usr/lib/systemd/system/nodebb-nodejs.path "$T/etc/systemd/system/paths.target.wants/nodebb-nodejs.path"
+mkdir -p "$T/etc/apt/preferences.d"
+cp "$OVERLAY/etc/apt/preferences.d/keel-nodebb-nodejs" "$T/etc/apt/preferences.d/"
 for f in keel-default.d/60-keel-nodebb.conf keel-front.d/60-keel-nodebb.conf conf.d/keel-nodebb.conf; do
     cp "$OVERLAY/etc/nginx/$f" "$T/etc/nginx/$f"
 done
@@ -160,4 +162,13 @@ KEEL_CONF_ROOT=\"\$T\" \"$CHECK\""
     check 'rmdir "$T/var/lib/nodebb/uploads"'
     [ "$status" -eq 1 ]
     [[ "$output" == *"/var/lib/nodebb/uploads is not a directory of the image"* ]]
+}
+
+@test "no apt pin of the line, or a pin that does not refuse the other lines, fails" {
+    check 'rm "$T/etc/apt/preferences.d/keel-nodebb-nodejs"'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"keel-nodebb-nodejs does not keep line 24 and refuse the other lines"* ]]
+    check 'sed -i "s/^Package: keel-nodejs keel-nodejs-\\*$/Package: keel-nodejs/" "$T/etc/apt/preferences.d/keel-nodebb-nodejs"'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"does not keep line 24"* ]]
 }

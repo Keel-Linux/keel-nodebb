@@ -83,7 +83,10 @@ setup() {
 }
 
 @test "nothing of the old layer and no container file is left" {
-    for p in overlay/etc/nginx/sites-available overlay/etc/apt bin/keel-archive-check conf.d/zz-project-packages \
+    # the only apt file of the layer is the pin of the Node.js line: no
+    # source entry and no pin of an archive (the build time apt block is gone)
+    [ "$(cd "$R/overlay/etc/apt" && find . -type f)" = ./preferences.d/keel-nodebb-nodejs ]
+    for p in overlay/etc/nginx/sites-available bin/keel-archive-check conf.d/zz-project-packages \
             stacks overlay/usr/lib/inithooks/firstboot.d/40nodebb overlay/etc/systemd/system/nodebb.service; do
         [ ! -e "$R/$p" ]
     done
@@ -91,4 +94,17 @@ setup() {
     run git -C "$R" grep -n -i -E 'docker|podman|^[[:space:]]*container:' -- \
         ':!tests/layer.bats' ':!tests/image-check.bats' ':!conf.d/*' ':!*.md' ':!README.rst' ':!changelog'
     [ "$status" -eq 1 ]
+}
+
+@test "an apt pin keeps the Node.js line of the plan, and blocks every other line" {
+    f="$O/etc/apt/preferences.d/keel-nodebb-nodejs"
+    # the record of the line of the plan comes first: apt takes the first
+    # record that matches a package
+    [ "$(grep -m1 '^Package:' "$f")" = "Package: keel-nodejs-24" ]
+    [ "$(awk '/^Package: keel-nodejs-24$/ { p = 1; next } p && /^Pin:/ { print; exit }' "$f")" = "Pin: version 24.*" ]
+    [ "$(awk '/^Package: keel-nodejs-24$/ { p = 1; next } p && /^Pin-Priority:/ { print $2; exit }' "$f")" = 500 ]
+    grep -qx 'Package: keel-nodejs keel-nodejs-\*' "$f"
+    [ "$(awk '/^Package: keel-nodejs keel-nodejs-\*$/ { p = 1; next } p && /^Pin-Priority:/ { print $2; exit }' "$f")" = -1 ]
+    # the line of the pin is the line of the plan
+    grep -qx "keel-nodejs-$(sed -n 's/^NODE_LINE=//p' "$R/conf.d/main")" "$R/plan/main"
 }

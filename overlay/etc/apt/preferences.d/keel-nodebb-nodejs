@@ -1,0 +1,19 @@
+# keel-nodebb: NodeBB of this image runs on Node.js line 24, the line that
+# plan/main names (handbook note 0083, amendment of 2026-11-12). The lines
+# conflict, so an apt install of keel-nodejs-26 would remove line 24 and
+# stop NodeBB. This file keeps line 24 and refuses every other line.
+#
+# apt takes the first record that matches a package, so the record of
+# line 24 comes first: updates of line 24 come with apt upgrade as usual.
+# The second record gives every other name priority -1: apt has no
+# candidate for it. dpkg -i does not read this file.
+#
+# To change the line on purpose, read "A change of the Node.js line" in
+# the README of keel-nodebb: the new line passes commissioning first.
+Package: keel-nodejs-24
+Pin: version 24.*
+Pin-Priority: 500
+
+Package: keel-nodejs keel-nodejs-*
+Pin: version *
+Pin-Priority: -1

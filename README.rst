@@ -17,6 +17,8 @@ What the layer adds
 - Node.js 24 from the Keel package ``keel-nodejs-24`` (note 0083). Each
   Node.js line is its own package, and the lines conflict. The layer names
   its line in ``plan/main``.
+- An apt pin (``/etc/apt/preferences.d/keel-nodebb-nodejs``) keeps line
+  24 and refuses the other lines.
 - ``nodebb-nodejs.path`` restarts NodeBB when ``/usr/lib/keel-nodejs/bin/node``
   changes. The Node.js package has no maintainer script, so without this
   unit NodeBB keeps the old binary after an upgrade.
@@ -43,6 +45,30 @@ What the layer adds
   nodebb-plugin-emoji, and ``/var/lib/nodebb/uploads``, which a pair
   replicates (``state.replicate`` of ``nodebb.yaml``).
 - The check page of lnpp is removed.
+
+A change of the Node.js line
+----------------------------
+
+Each Node.js line is its own package, and the lines conflict (handbook
+note 0083). ``/etc/apt/preferences.d/keel-nodebb-nodejs`` keeps line 24
+and refuses every other line, so ``apt install keel-nodejs-26`` finds no
+candidate and cannot remove line 24 by surprise. Updates of line 24 come
+with ``apt upgrade`` as usual.
+
+The normal change of line is a new image: the plan names the new line,
+the pin follows it, and the image passes commissioning on both sites
+first. To change the line of an installed node on purpose:
+
+1. Make sure that NodeBB of this layer passed commissioning on the new
+   line. A native module of NodeBB is built for the ABI of one line.
+2. Edit ``/etc/apt/preferences.d/keel-nodebb-nodejs``: put the new line,
+   for example ``keel-nodejs-26`` and ``Pin: version 26.*``, in the first
+   record.
+3. Run ``apt install keel-nodejs-26``. apt removes ``keel-nodejs-24``.
+4. ``nodebb-nodejs.path`` restarts NodeBB on the new binary. Check the
+   forum.
+
+To go back, do the same steps with line 24.
 
 Build
 -----
