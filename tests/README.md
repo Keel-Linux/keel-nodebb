@@ -13,8 +13,10 @@ What a test means for an appliance recipe is written in `COVERAGE.md`.
 - `commission.yaml`: the commissioning contract (decision 0075).
   `commission-core.yaml` is the contract of the Keel Core witness.
 - `boot-test.sh`, `lib/boot-test-lib.sh`, `boot-test.bats`: the boot test
-  of the published layer. It still checks the forum of the layer on
-  nodejs-nginx and changes with the first layer on lnpp.
+  of the published layer, for the layer on lnpp: the forum on 443, port 80
+  with no redirect (decision 0079), and the three secrets of the spec. No
+  nodebb layer is published yet, so the `appliance` check fails until one
+  is.
 
 ## Run
 

@@ -318,19 +318,18 @@ DEF
     [ "$output" = $'/r/etc/keel/instance.yaml\n/r/etc/inithooks.yaml' ]
 }
 
-@test "secret_targets: the two secret files the spec references" {
+@test "secret_targets: the three secret files the spec references, db_password of lnpp too" {
     output=$(bt_secret_targets /r)
-    [ "$output" = $'/r/etc/keel/secrets/root_password\n/r/etc/keel/secrets/app_password' ]
+    [ "$output" = $'/r/etc/keel/secrets/root_password\n/r/etc/keel/secrets/db_password\n/r/etc/keel/secrets/app_password' ]
 }
 
-@test "redirects_to_https: a redirect to https on port 80, nothing else" {
-    bt_redirects_to_https 301 https://forum.example.org/
-    bt_redirects_to_https 302 https://forum.example.org/
-    bt_redirects_to_https 307 https://forum.example.org/
-    bt_redirects_to_https 308 https://forum.example.org/
-    run ! bt_redirects_to_https 200 ""
-    run ! bt_redirects_to_https 307 http://forum.example.org/
-    run ! bt_redirects_to_https "" ""
+@test "serves_on_port_80: port 80 answers 200 with no redirect while the certificate is self-signed (0079)" {
+    bt_serves_on_port_80 200 ""
+    run ! bt_serves_on_port_80 301 https://forum.example.org/
+    run ! bt_serves_on_port_80 308 https://forum.example.org/
+    run ! bt_serves_on_port_80 200 https://forum.example.org/
+    run ! bt_serves_on_port_80 502 ""
+    run ! bt_serves_on_port_80 "" ""
 }
 
 @test "page_title: the first title element, empty when there is none" {

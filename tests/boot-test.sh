@@ -60,7 +60,7 @@ keel assemble "$BT_APPLIANCE" --rootfs "$BT_ROOTFS" --cache-dir "$BT_CACHE_DIR" 
 #    that inspect reads to call the machine a container (managed_by: host),
 #    and REDIRECT_OUTPUT=true, without which a hook that prints a lot blocks
 #    writing to a tty1 nobody reads. The conf is what makes the first boot
-#    headless; without it 30rootpass and 40nodebb wait on a dialog forever.
+#    headless; without it 30rootpass and 45nodebb wait on a dialog forever.
 log "installing the spec, the secrets and the conf into $BT_ROOTFS"
 bt_mark_container "$BT_ROOTFS"
 install -d -m 0700 "$BT_ROOTFS/etc/keel/secrets"
@@ -107,15 +107,10 @@ bt_wait_for "$BT_TIMEOUT" "$BT_INTERVAL" "the first boot of $BT_NAME to finish" 
     first_boot_done
 log "first boot finished; ssh root@$addr"
 
-# 6. The forum answers over IPv6: nginx redirects port 80 to https, and the
-#    NodeBB page comes back on 443 with a title. NodeBB takes a moment after
-#    its unit is started, so the page is polled.
-redirect=$(curl -6 -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://[$addr]/")
-log "http://[$addr]/ answered $redirect"
-# shellcheck disable=SC2086  # two fields, split on purpose
-bt_redirects_to_https $redirect \
-    || { echo "boot-test: nginx did not redirect port 80 to https" >&2; exit 1; }
-
+# 6. The forum answers over IPv6 on 443 with a title. NodeBB takes a moment
+#    after serve.py starts it, so the page is polled. Then port 80 serves
+#    the forum too, with no redirect, while the certificate of the first
+#    boot is self-signed (decision 0079).
 page=$container_dir/index.html
 code=""
 forum_answers() {
@@ -124,6 +119,11 @@ forum_answers() {
 }
 bt_wait_for "$BT_TIMEOUT" "$BT_INTERVAL" "the forum on https://[$addr]/" forum_answers
 bt_http_verdict "$code" "$(bt_page_title "$page")"
+plain=$(curl -6 -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://[$addr]/" || true)
+log "http://[$addr]/ answered $plain"
+# shellcheck disable=SC2086  # two fields, split on purpose
+bt_serves_on_port_80 $plain \
+    || { echo "boot-test: port 80 did not serve the forum (decision 0079)" >&2; exit 1; }
 
 # 7. No drift between the declared spec and the booted root.
 set +e

@@ -61,7 +61,8 @@ Open items
   pair; this layer keeps its secret in the database instead.
 - Coraza exclusions for posts are not written and not tested.
 - The option ``trusted_proxy`` of the old layer is gone.
-- The boot test still checks the published layer on nodejs-nginx.
+- No nodebb layer is published, so the `appliance` check fails until a
+  layer on lnpp is published after commissioning.
 
 Tests
 -----

@@ -51,11 +51,14 @@ jobs:
     # built there; the build host publishes the layer. So what boots is the
     # layer the mirror publishes, never this branch.
     #
-    # Handbook note 0082 moves the layer from the nodejs-nginx stack to
-    # lnpp. The published nodebb layer (19.0-6) is still on nodejs-nginx,
-    # so this job fails against it until a layer on lnpp is built and
-    # published (step 7 of the note). tests/boot-test.sh still checks the
-    # old forum; it changes with the first layer on lnpp.
+    # On 2026-11-12 https://mirror.keellinux.org/layers/nodebb.manifest
+    # answers 404: no nodebb layer is published (the images of 2026-11-05
+    # were withdrawn, and the layer on lnpp is not built yet). The job then
+    # fails and claims no boot. It passes for real only when a nodebb layer
+    # on lnpp is published, after the commissioning of note 0082, step 7.
+    # allow_unpublished is not set: it would turn the missing layer into a
+    # skip. tests/boot-test.sh checks the layer on lnpp: port 80 serves the
+    # forum (0079), and the spec gives db_password.
     if: vars.KEEL_LXC_RUNNER == 'true'
     runs-on: keel-lxc
     uses: keel-linux/.github/.github/workflows/test-appliance.yml@main

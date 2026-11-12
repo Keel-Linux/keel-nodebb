@@ -1,5 +1,5 @@
 # Instance spec of the boot test (format: docs/spec.md of the keel
-# repository). IPv6 first, from the bridge; no certificate request; the two
+# repository). IPv6 first, from the bridge; no certificate request; the three
 # passwords are files the test writes into the rootfs before booting.
 #
 # This is the throwaway container the gate boots, not the forum: the
@@ -35,6 +35,8 @@ tls:
 secrets:
   root_password:
     file: /etc/keel/secrets/root_password
+  db_password:
+    file: /etc/keel/secrets/db_password
   app_password:
     file: /etc/keel/secrets/app_password
 
