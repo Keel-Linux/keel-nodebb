@@ -2,7 +2,8 @@
 # (decision 0056). The full CI is .forgejo/workflows on git.pop.coop, and
 # .forgejo/workflows/tests.yml has the notes on each job.
 #
-# Jobs on Forgejo only (no GitHub-hosted version): appliance.
+# Jobs on Forgejo only (no GitHub-hosted version): python, appliance and
+# commission. The shell tests need fakeroot and python3-yaml (tests/image-check.bats).
 name: tests
 
 on:
@@ -16,6 +17,7 @@ jobs:
     uses: keel-linux/.github/.github/workflows/github-test-shell.yml@main
     with:
       threshold: 95
+      apt-packages: fakeroot python3-yaml
 
   package:
     uses: keel-linux/.github/.github/workflows/github-require-changelog.yml@main
