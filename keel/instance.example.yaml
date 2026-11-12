@@ -6,7 +6,7 @@
 # Copy to /etc/keel/instance.yaml in the rootfs and create the three secret
 # files (mode 0600, owned by root) before the first boot:
 #   /etc/keel/secrets/root_password
-#   /etc/keel/secrets/db_password       PostgreSQL and the role nodebb
+#   /etc/keel/secrets/db_password       the PostgreSQL account postgres
 #   /etc/keel/secrets/app_password      the NodeBB admin password
 version: 1
 

@@ -46,6 +46,12 @@ setup() {
     [ -z "$output" ]
 }
 
+@test "the build runs nodebb.py with no database password and no terminal" {
+    run grep -n 'DB_PASS' "$R/conf.d/main"
+    [ "$status" -eq 1 ]
+    grep -q '^/usr/lib/inithooks/bin/nodebb.py .* </dev/null$' "$R/conf.d/main"
+}
+
 @test "the unit runs serve.py as nodebb in a read-only tree with the paths of note 0082" {
     u="$O/usr/lib/systemd/system/nodebb.service"
     grep -qx 'User=nodebb' "$u"

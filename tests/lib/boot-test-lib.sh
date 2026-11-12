@@ -20,7 +20,8 @@ BT_PASSWORD_LENGTH=24
 BT_RANDOM_BYTES=1024
 # The secrets tests/instance.yaml references, one file each under
 # etc/keel/secrets in the rootfs: the root account and the NodeBB admin.
-# db_password is the secret of lnpp: PostgreSQL and the role nodebb (0082)
+# db_password is the secret of lnpp: the account postgres. The role nodebb
+# has no password: NodeBB logs in on the socket (peer)
 BT_SECRETS="root_password db_password app_password"
 # Where the first boot reads the instance description. inithooks reads
 # etc/inithooks.yaml (hook 00declarative), keel reads etc/keel/instance.yaml;

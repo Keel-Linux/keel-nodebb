@@ -7,21 +7,29 @@ Options:
     --admin=    the login of the admin user (default admin)
 
 Environment:
-    APP_PASS       the password of the admin user (secrets.app_password)
-    DB_PASS        the password of the role nodebb (secrets.db_password of
-                   lnpp, which a pair shares)
+    APP_PASS       the password of the admin user (secrets.app_password).
+                   With no APP_PASS and a terminal on standard input, the
+                   hook asks it on the console (the screen 'NodeBB
+                   password')
     KEEL_SECRET_NODEBB_SECRET
                    the secret that signs the session cookie, when the spec
                    declares secrets.nodebb_secret (keel renders a manifest
                    secret with the prefix KEEL_SECRET_)
 
 On the node whose PostgreSQL accepts writes (simple, or the primary of a
-pair) the hook sets the role nodebb and its password, makes the database
-nodebb, writes config.json and runs `./nodebb setup`. On a standby it
-writes config.json only: the database comes from the primary. The
-passwords go to psql on standard input and to NodeBB in the environment,
-never in the arguments, which the process list shows. At its end the hook
-writes READY, and only then does serve.py start NodeBB.
+pair) the hook makes the role nodebb and the database nodebb, writes
+config.json and runs `./nodebb setup`. On a standby it writes config.json
+only: the database comes from the primary. The admin password goes to
+NodeBB in the environment, never in the arguments, which the process list
+shows. At its end the hook writes READY, and only then does serve.py start
+NodeBB.
+
+NodeBB logs in to PostgreSQL on the socket of the server, with the peer
+authentication of the operating system user nodebb, as serve.py does. So
+the role nodebb has no password, config.json holds no database password,
+and the hook does not need DB_PASS. An interactive first boot does not
+have DB_PASS: 35pgsqlpass asks the password of postgres on the console
+and gives it to no later hook (lxc-interactive and vm-iso, 2026-11-12).
 
 The session secret lives in the database, in the one-row table
 keel_nodebb_secret, so a pair shares it with the session rows, as
@@ -31,10 +39,7 @@ it. serve.py gives the secret of the row to NodeBB in its environment,
 which NodeBB reads before config.json.
 """
 
-import base64
 import getopt
-import hashlib
-import hmac
 import json
 import os
 import pwd
@@ -50,7 +55,11 @@ UPLOADS = "/var/lib/nodebb/uploads"
 SERVICE_USER = "nodebb"
 DATABASE = "nodebb"
 PORT = 4567
-SCRAM_ITERATIONS = 4096
+# the directory of the socket of PostgreSQL (unix_socket_directories of
+# Debian); node-postgres takes a host that starts with "/" as a socket
+# directory
+SOCKET_DIR = "/run/postgresql"
+DIALOG_TITLE = "Keel Linux - First boot configuration"
 DOMAIN_RE = re.compile(
     r"^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)(:[0-9]{1,5})?$")
 LOGIN_RE = re.compile(r"^[A-Za-z0-9._-]{2,32}$")
@@ -58,7 +67,7 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+$")
 # NodeBB 4 reads these keys (src/prestart.js, src/install.js)
 DATABASE_SQL = """\
 SELECT 'CREATE ROLE nodebb LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'nodebb')\\gexec
-ALTER ROLE nodebb LOGIN PASSWORD '%s';
+ALTER ROLE nodebb LOGIN PASSWORD NULL;
 SELECT 'CREATE DATABASE nodebb OWNER nodebb ENCODING ''UTF8'' TEMPLATE template0'
   WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'nodebb')\\gexec
 """
@@ -107,17 +116,23 @@ def given(value):
     return value
 
 
-def scram_verifier(password, salt=None, iterations=SCRAM_ITERATIONS):
-    """The SCRAM-SHA-256 verifier that PostgreSQL stores (RFC 7677). The
-    server accepts it in ALTER ROLE ... PASSWORD and never sees the
-    password itself."""
-    salt = salt if salt is not None else secrets.token_bytes(16)
-    salted = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
-    client_key = hmac.new(salted, b"Client Key", "sha256").digest()
-    stored_key = hashlib.sha256(client_key).digest()
-    server_key = hmac.new(salted, b"Server Key", "sha256").digest()
-    b64 = lambda data: base64.b64encode(data).decode()  # noqa: E731
-    return "SCRAM-SHA-256$%d:%s$%s:%s" % (iterations, b64(salt), b64(stored_key), b64(server_key))
+def load_dialog():
+    from libinithooks.dialog_wrapper import Dialog
+    return Dialog
+
+
+def read_password(env, interactive):
+    """APP_PASS, else the answer of the console, as odoo.py of keel-odoo"""
+    password = given(env.get("APP_PASS"))
+    if password:
+        return password
+    if not interactive:
+        raise HookError("no APP_PASS: the admin user of NodeBB needs a password; "
+                        "declare secrets.app_password, or run keel-init on a console")
+    dialog = load_dialog()(DIALOG_TITLE)
+    return dialog.get_password(
+        "NodeBB password",
+        "Enter the password for the NodeBB 'admin' user.")
 
 
 def run_postgres(args, stdin=None, run=subprocess.run):
@@ -135,9 +150,8 @@ def is_writable(run=subprocess.run):
     return out == "f"
 
 
-def set_database(db_pass, run=subprocess.run):
-    verifier = scram_verifier(db_pass)
-    run_postgres(["-d", "postgres"], stdin=DATABASE_SQL % verifier, run=run)
+def set_database(run=subprocess.run):
+    run_postgres(["-d", "postgres"], stdin=DATABASE_SQL, run=run)
 
 
 def store_secret(candidate, run=subprocess.run):
@@ -160,16 +174,15 @@ def read_config(path=None):
         raise HookError("%s is not JSON: %s" % (path, error))
 
 
-def build_config(domain, db_pass, secret):
+def build_config(domain, secret):
     return {
         "url": "https://%s" % domain,
         "secret": secret,
         "database": "postgres",
         "postgres": {
-            "host": "127.0.0.1",
+            "host": SOCKET_DIR,
             "port": 5432,
             "username": DATABASE,
-            "password": db_pass,
             "database": DATABASE,
             "ssl": False,
         },
@@ -218,7 +231,10 @@ def setup_env(admin, password, email):
 
 
 def run_setup(admin, password, email, run=subprocess.run):
-    result = run(setup_command(), cwd=NODEBB_DIR, env=setup_env(admin, password, email), check=False)
+    """Standard input is not the console: a question of the setup gets no
+    answer and fails, and never holds the first boot."""
+    result = run(setup_command(), cwd=NODEBB_DIR, env=setup_env(admin, password, email),
+                 stdin=subprocess.DEVNULL, check=False)
     if result.returncode != 0:
         raise HookError("./nodebb setup failed with exit %d" % result.returncode)
 
@@ -251,7 +267,7 @@ def host_of(domain):
     return domain.split(":")[0]
 
 
-def configure(values, env, run=subprocess.run, chown=os.chown, owner=owner_of):
+def configure(values, env, run=subprocess.run, chown=os.chown, owner=owner_of, interactive=False):
     domain = given(values.get("domain"))
     if not domain or not DOMAIN_RE.match(domain):
         raise HookError("the domain %r is not a host name" % domain)
@@ -261,23 +277,18 @@ def configure(values, env, run=subprocess.run, chown=os.chown, owner=owner_of):
     email = given(values.get("email")) or "admin@%s" % host_of(domain)
     if not EMAIL_RE.match(email):
         raise HookError("the admin email %r is not an address" % email)
-    password = given(env.get("APP_PASS"))
-    db_pass = given(env.get("DB_PASS"))
-    if not db_pass:
-        raise HookError("no DB_PASS: the role nodebb needs the password of the database")
     spec_secret = given(env.get("KEEL_SECRET_NODEBB_SECRET"))
     uid, gid = owner(SERVICE_USER)
     writable = is_writable(run=run)
     if writable:
-        if not password:
-            raise HookError("no APP_PASS: the admin user of NodeBB needs a password")
-        set_database(db_pass, run=run)
+        password = read_password(env, interactive)
+        set_database(run=run)
         secret = store_secret(spec_secret or secrets.token_hex(32), run=run)
     else:
         # serve.py never starts NodeBB here: after a promote it gives the
         # secret of the replicated row in the environment
         secret = spec_secret or read_config().get("secret") or secrets.token_hex(32)
-    config = build_config(domain, db_pass, secret)
+    config = build_config(domain, secret)
     if writable:
         make_uploads((uid, gid), chown=chown)
         # setup runs as nodebb and rewrites config.json, so nodebb owns it
@@ -292,7 +303,8 @@ def configure(values, env, run=subprocess.run, chown=os.chown, owner=owner_of):
 def main(argv=None, env=None):
     values = parse_args(sys.argv[1:] if argv is None else argv)
     try:
-        writable = configure(values, os.environ if env is None else env)
+        writable = configure(values, os.environ if env is None else env,
+                             interactive=sys.stdin.isatty())
         mark_ready()
     except (HookError, OSError, KeyError) as error:
         print("nodebb.py: %s" % error, file=sys.stderr)

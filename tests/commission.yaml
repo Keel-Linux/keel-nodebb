@@ -68,10 +68,12 @@ instance:
   first_login_wizard: false
 proofs:
   - {secret: root, kind: shadow, user: root}
-  # the postgres role, by a TCP login: pg_hba.conf asks a password there
+  # the postgres role, by a TCP login: pg_hba.conf asks a password there.
+  # The role nodebb has no password: NodeBB logs in on the socket with peer
+  # authentication, as an interactive first boot has no DB_PASS to give it
+  # (lxc-interactive and vm-iso, 2026-11-12). The app proof below shows that
+  # NodeBB reaches its database.
   - {secret: db, kind: pgsql, user: postgres, host: 127.0.0.1, database: postgres}
-  # the role nodebb has the same password (note 0082, section 3)
-  - {secret: db, kind: pgsql, user: nodebb, host: 127.0.0.1, database: nodebb}
   # the NodeBB admin user, by NodeBB's own login through Nginx (the csrf
   # token of /api/config, then POST /login); the password goes from the
   # environment, never on a command line. On the standby of a cloud pair

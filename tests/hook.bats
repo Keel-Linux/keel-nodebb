@@ -26,7 +26,7 @@ console_deferred() { echo "INFO: [$1] not asked, nobody can answer ($INITHOOKS_U
 CON
     cat > "$scratch/inithooks/bin/nodebb.py" <<'PY'
 #!/bin/sh
-echo "nodebb.py $* APP_PASS=${APP_PASS-unset} DB_PASS=${DB_PASS-unset} KEEL_SECRET_NODEBB_SECRET=${KEEL_SECRET_NODEBB_SECRET-unset}" >> "$CALLS"
+echo "nodebb.py $* APP_PASS=${APP_PASS-unset} KEEL_SECRET_NODEBB_SECRET=${KEEL_SECRET_NODEBB_SECRET-unset}" >> "$CALLS"
 exit "${NODEBB_PY_STATUS:-0}"
 PY
     chmod +x "$scratch/inithooks/bin/nodebb.py"
@@ -57,7 +57,7 @@ export APP_ADMIN_USER=boss
 CONF
     run "$HOOK"
     [ "$status" -eq 0 ]
-    [ "$(head -1 "$CALLS")" = "nodebb.py --domain=forum.example.org --email=boss@example.org --admin=boss APP_PASS=app-secret DB_PASS=db-secret KEEL_SECRET_NODEBB_SECRET=" ]
+    [ "$(head -1 "$CALLS")" = "nodebb.py --domain=forum.example.org --email=boss@example.org --admin=boss APP_PASS=app-secret KEEL_SECRET_NODEBB_SECRET=" ]
     [ "$(sed -n 2p "$CALLS")" = "systemctl try-restart nodebb.service" ]
     [ ! -f "$DEFERRED" ]
 }
@@ -86,13 +86,24 @@ CONF
     [ ! -f "$CALLS" ]
 }
 
-@test "a headless first boot with DEFAULT passwords names both" {
-    printf 'export APP_PASS=DEFAULT\nexport DB_PASS=default\n' > "$INITHOOKS_CONF"
+@test "a headless first boot with a DEFAULT app password asks nothing" {
+    printf 'export APP_PASS=DEFAULT\nexport DB_PASS=b\n' > "$INITHOOKS_CONF"
     export INITHOOKS_UNATTENDED=yes
     run "$HOOK"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"no APP_PASS DB_PASS:"* ]]
+    [[ "$output" == *"no APP_PASS:"* ]]
     [ ! -f "$CALLS" ]
+}
+
+@test "with the app password and no DB_PASS a headless first boot configures NodeBB" {
+    # NodeBB logs in on the socket of PostgreSQL with peer authentication:
+    # DB_PASS is not used (lxc-interactive and vm-iso, 2026-11-12)
+    printf 'export APP_PASS=a\n' > "$INITHOOKS_CONF"
+    export INITHOOKS_UNATTENDED=yes
+    run "$HOOK"
+    [ "$status" -eq 0 ]
+    [ ! -f "$DEFERRED" ]
+    [[ "$(head -1 "$CALLS")" == *"APP_PASS=a "* ]]
 }
 
 @test "with a console and no password nodebb.py runs and gives its answer" {
@@ -100,15 +111,15 @@ CONF
     export NODEBB_PY_STATUS=1
     run "$HOOK"
     [ "$status" -eq 1 ]
-    [[ "$(head -1 "$CALLS")" == "nodebb.py --domain=node.example.org"*"APP_PASS=unset DB_PASS=unset"* ]]
+    [[ "$(head -1 "$CALLS")" == "nodebb.py --domain=node.example.org"*"APP_PASS=unset "* ]]
     # nothing restarts a NodeBB that the hook did not configure
     [ "$(wc -l < "$CALLS")" -eq 1 ]
 }
 
 @test "with no conf file the hook still runs" {
     rm -f "$INITHOOKS_CONF"
-    export APP_PASS=a DB_PASS=b
+    export APP_PASS=a
     run "$HOOK"
     [ "$status" -eq 0 ]
-    [[ "$(head -1 "$CALLS")" == *"APP_PASS=a DB_PASS=b"* ]]
+    [[ "$(head -1 "$CALLS")" == *"APP_PASS=a "* ]]
 }

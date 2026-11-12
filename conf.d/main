@@ -97,13 +97,14 @@ chown -R nodebb:nodebb /var/www/nodebb/node_modules/nodebb-plugin-emoji/build/em
 PGVER="$(ls /etc/postgresql/)"
 pg_ctlcluster --skip-systemctl-redirect "$PGVER" main start -o "-c ssl=off"
 trap 'pg_ctlcluster --skip-systemctl-redirect "$PGVER" main stop || true' EXIT
-# no trace while the scratch passwords are in the environment
+# no trace while the scratch password is in the environment. NodeBB logs in
+# on the socket (peer), so no database password is used. Standard input is
+# not a terminal, so nodebb.py asks nothing.
 set +x
 APP_PASS="$(openssl rand -hex 24)"
-DB_PASS="$(openssl rand -hex 24)"
-export APP_PASS DB_PASS KEEL_SECRET_NODEBB_SECRET=build-time-only
-/usr/lib/inithooks/bin/nodebb.py --domain=nodebb.invalid --email=admin@nodebb.invalid --admin=admin
-unset APP_PASS DB_PASS KEEL_SECRET_NODEBB_SECRET
+export APP_PASS KEEL_SECRET_NODEBB_SECRET=build-time-only
+/usr/lib/inithooks/bin/nodebb.py --domain=nodebb.invalid --email=admin@nodebb.invalid --admin=admin </dev/null
+unset APP_PASS KEEL_SECRET_NODEBB_SECRET
 set -x
 test -d build/public
 # The active set of this build: serve.py builds again when the set of the

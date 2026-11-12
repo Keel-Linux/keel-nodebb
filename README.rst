@@ -38,9 +38,15 @@ What the layer adds
   ``keel-front.d``: NodeBB on ``127.0.0.1:4567``, socket.io with the
   Upgrade headers, a larger body on the upload routes only.
 - The first boot hook ``45nodebb`` and ``bin/nodebb.py``: ``config.json``,
-  the role and database ``nodebb`` (password ``secrets.db_password``), and
-  ``./nodebb setup`` with the admin of the spec (``secrets.app_password``,
-  ``app.options.admin_user``).
+  the role and database ``nodebb``, and ``./nodebb setup`` with the admin
+  of the spec (``secrets.app_password``, ``app.options.admin_user``). With
+  no ``secrets.app_password``, keel-init asks it on the console (the screen
+  "NodeBB password").
+- NodeBB logs in to PostgreSQL on the socket ``/run/postgresql`` with the
+  peer authentication of the user nodebb. The role ``nodebb`` has no
+  password, and ``config.json`` holds no database password.
+  ``secrets.db_password`` is the password of the account ``postgres``
+  only.
 - NodeBB writes ``build/``, ``logs/``, the pidfile, the emoji data of
   nodebb-plugin-emoji, and ``/var/lib/nodebb/uploads``, which a pair
   replicates (``state.replicate`` of ``nodebb.yaml``).

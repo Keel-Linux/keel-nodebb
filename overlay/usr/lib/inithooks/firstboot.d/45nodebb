@@ -1,15 +1,21 @@
 #!/bin/bash -e
-# Configure NodeBB from the spec (secrets.app_password, secrets.db_password
-# of lnpp, app.domain, app.email, app.options.admin_user), handbook note
-# 0082, section 5. Runs after 35pgsqlpass and 36pgsqlverify of the lnpp
-# layer, so PostgreSQL answers. NodeBB is not running: serve.py starts it
-# only after nodebb.py has written /var/lib/keel-nodebb/ready, at its end.
+# Configure NodeBB from the spec (secrets.app_password, app.domain,
+# app.email, app.options.admin_user), handbook note 0082, section 5. Runs
+# after 35pgsqlpass and 36pgsqlverify of the lnpp layer, so PostgreSQL
+# answers. NodeBB is not running: serve.py starts it only after nodebb.py
+# has written /var/lib/keel-nodebb/ready, at its end.
 #
-# With no password declared, the question is the console's. Whether
-# anybody can answer the console is inithooks' rule (lib/console.sh), as
-# for 35pgsqlpass and 45odoo. When nobody can, the hook asks nothing and
-# leaves the question to keel-init (console_deferred). NodeBB stays
-# closed until then, as no ready mark is written.
+# NodeBB logs in to PostgreSQL on the socket with peer authentication, so
+# the hook needs no DB_PASS. An interactive first boot has none: 35pgsqlpass
+# asks the password of postgres on the console and keeps it (keel-init and
+# vm-iso of 2026-11-12 stopped here with "no DB_PASS").
+#
+# With no app password declared, nodebb.py asks it on the console (the
+# screen "NodeBB password"). Whether anybody can answer the console is
+# inithooks' rule (lib/console.sh), as for 35pgsqlpass and 45odoo. When
+# nobody can, the hook asks nothing and leaves the question to keel-init
+# (console_deferred). NodeBB stays closed until then, as no ready mark is
+# written.
 
 INITHOOKS_DEFAULT="${INITHOOKS_DEFAULT:-/etc/default/inithooks}"
 # shellcheck source=/dev/null
@@ -20,22 +26,15 @@ INITHOOKS_DEFAULT="${INITHOOKS_DEFAULT:-/etc/default/inithooks}"
 # shellcheck source=/dev/null
 [ -e "$INITHOOKS_CONF" ] && . "$INITHOOKS_CONF"
 
-missing=""
-for var in APP_PASS DB_PASS; do
-    value="${!var:-}"
-    if [ -z "$value" ] || [ "${value^^}" = DEFAULT ]; then
-        missing="$missing $var"
-    fi
-done
-if [ -n "$missing" ] && console_unattended; then
-    console_deferred 45nodebb "no${missing}: NodeBB stays closed until keel-init asks it; or declare secrets.app_password and secrets.db_password in the instance description"
+if { [ -z "${APP_PASS:-}" ] || [ "${APP_PASS^^}" = DEFAULT ]; } && console_unattended; then
+    console_deferred 45nodebb "no APP_PASS: NodeBB stays closed until keel-init asks it; or declare secrets.app_password in the instance description"
     exit 0
 fi
 
-# The passwords go in the environment, not in the arguments: the process
+# The password goes in the environment, not in the arguments: the process
 # list shows the arguments.
 # keel renders secrets.nodebb_secret of the spec as KEEL_SECRET_NODEBB_SECRET.
-export APP_PASS DB_PASS
+export APP_PASS
 export KEEL_SECRET_NODEBB_SECRET="${KEEL_SECRET_NODEBB_SECRET:-}"
 "$INITHOOKS_PATH/bin/nodebb.py" --domain="${APP_DOMAIN:-$(hostname -f)}" \
     --email="${APP_EMAIL:-}" --admin="${APP_ADMIN_USER:-}"

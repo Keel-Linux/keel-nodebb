@@ -1,3 +1,23 @@
+turnkey-nodebb-19.0 (8) turnkey; urgency=low
+
+  * The interactive first boot configures NodeBB. On keel-init and on the
+    ISO, 45nodebb stopped with "no DB_PASS" and asked no NodeBB password:
+    35pgsqlpass asks the password of postgres on the console and gives it
+    to no later hook. So NodeBB stayed closed, and the forum answered 502
+    (commissioning of 19.0-7, lxc-interactive and vm-iso, BR1 and BR2,
+    2026-11-12).
+  * nodebb.py asks the NodeBB password on the console (the screen "NodeBB
+    password") when no secrets.app_password is declared, as odoo.py does.
+  * NodeBB logs in to PostgreSQL on the socket /run/postgresql with the
+    peer authentication of the user nodebb, as serve.py does. The role
+    nodebb has no password, config.json holds no database password, and
+    the hook needs no DB_PASS. The contract has no proof of the role nodebb
+    with the db secret now: the NodeBB login proof shows the database.
+  * ./nodebb setup runs with no console on its standard input, so a
+    question of the setup can never hold the first boot.
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Thu, 12 Nov 2026 18:00:00 +0000
+
 turnkey-nodebb-19.0 (7) turnkey; urgency=low
 
   * The plan names keel-nodejs-24: one package for each Node.js line (the
