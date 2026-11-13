@@ -1,0 +1,38 @@
+manifest_version: 1
+kind: appliance
+name: nodebb
+title: Keel NodeBB
+summary: NodeBB forum behind Nginx on the LNPP stack, alone or as a replicated pair (0082)
+base: lnpp
+# No overlay and no process of its own. The overlays and the PostgreSQL
+# process are those of Core, Web and LNPP. NodeBB runs on the node whose
+# PostgreSQL is writable, and usr/lib/keel-nodebb/serve.py starts and stops
+# it, so a manifest process would make Monit start NodeBB on a standby.
+# NodeBB listens on the loopback, so the firewall has nothing to add.
+#
+# state: NodeBB writes its uploads to upload_path, /var/lib/nodebb/uploads.
+# On a database pair one Syncthing folder replicates it, send-only on the
+# primary and receive-only on the replica. build/, logs/, config.json and
+# the pidfile in /var/www/nodebb belong to each node and do not replicate.
+state:
+  replicate:
+    - /var/lib/nodebb/uploads
+options:
+  - name: admin_user
+    type: string
+    default: admin
+    # the rule of LOGIN_RE in usr/lib/inithooks/bin/nodebb.py
+    pattern: '^[A-Za-z0-9._-]{2,32}$'
+# The session cookie of NodeBB is signed with this secret. Both nodes of a
+# pair must hold the same value, so that a login survives a promote. The
+# value lives in the database (the table keel_nodebb_secret), so it
+# replicates with the session rows, as the salts of WordPress do. When the
+# spec declares secrets.nodebb_secret, keel renders it as
+# KEEL_SECRET_NODEBB_SECRET, and the first writable boot stores it; else
+# that boot makes one. keel itself has no general path that gives one
+# generated value to both nodes; this layer does not need one.
+secrets:
+  - name: nodebb_secret
+    description: The secret that signs the NodeBB session cookie, the same on both nodes of a pair
+    generate: required
+    shared: true

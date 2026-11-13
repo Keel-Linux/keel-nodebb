@@ -1,0 +1,268 @@
+# The commissioning contract of keel-nodebb (handbook decision 0075).
+# bin/keel-commission of Keel-Linux/.github reads it: it makes a container
+# from the template as an operator does, answers the first boot (or
+# preseeds it with the instance below), and proves each password by a
+# login with it. A new first boot question or secret is a change of this
+# file in the same pull request.
+contract: 1
+appliance: nodebb
+secrets: [root, db, app]
+# The prompts are the titles that the first boot draws on tty1. A password
+# comes first as a menu of the same title (Generate or Manual), and the
+# runner takes Manual.
+questions:
+  - id: root_password
+    hook: 30rootpass
+    prompt: Root Password
+    answer: secret:root
+  - id: db_password
+    hook: 35pgsqlpass
+    prompt: PostgreSQL Password
+    answer: secret:db
+  - id: nodebb_password
+    hook: 45nodebb
+    prompt: NodeBB password
+    answer: secret:app
+  - id: alert_email
+    hook: 85secalerts
+    prompt: System Notifications
+    answer: admin@example.org
+# keel/instance.example.yaml of this repository, with the secrets of the
+# run and no instance name: the machine keeps the name pct create gave it
+instance:
+  version: 1
+  network:
+    managed_by: host
+    interfaces:
+      eth0:
+        ipv6:
+          method: auto
+  tls:
+    acme:
+      enabled: false
+  appliance:
+    name: nodebb
+  installation:
+    mode: simple
+  overlays:
+    installer: enabled
+    wireguard: disabled
+    etcd: disabled
+    crowdsec: disabled
+    vip: disabled
+    nginx: enabled
+    coraza: disabled
+    anubis: disabled
+    syncthing: disabled
+  secrets:
+    root_password: secret:root
+    db_password: secret:db
+    app_password: secret:app
+  app:
+    domain: nodebb.example.org
+  hub:
+    api_key: skip
+  security:
+    alerts: admin@example.org
+    updates_at_first_boot: skip
+  first_login_wizard: false
+proofs:
+  - {secret: root, kind: shadow, user: root}
+  # the postgres role, by a TCP login: pg_hba.conf asks a password there.
+  # The role nodebb has no password: NodeBB logs in on the socket with peer
+  # authentication, as an interactive first boot has no DB_PASS to give it
+  # (lxc-interactive and vm-iso, 2026-11-12). The app proof below shows that
+  # NodeBB reaches its database.
+  - {secret: db, kind: pgsql, user: postgres, host: 127.0.0.1, database: postgres}
+  # the NodeBB admin user, by NodeBB's own login through Nginx (the csrf
+  # token of /api/config, then POST /login); the password goes from the
+  # environment, never on a command line. On the standby of a cloud pair
+  # NodeBB does not run (serve.py): there the proof is skipped, as the hash
+  # is bcrypt and python3-bcrypt is not in the image.
+  - secret: app
+    kind: command
+    run: |-
+      if [ "$(runuser -u postgres -- psql -d nodebb -Atc 'SELECT pg_is_in_recovery()')" = t ]; then exit 0; fi; for i in $(seq 60); do python3 -c 'import http.cookiejar as c, json, os, ssl, sys, urllib.parse as p, urllib.request as r; x = ssl._create_unverified_context(); o = r.build_opener(r.HTTPCookieProcessor(c.CookieJar()), r.HTTPSHandler(context=x)); t = json.load(o.open("https://127.0.0.1/api/config"))["csrf_token"]; q = r.Request("https://127.0.0.1/login", p.urlencode({"username": "admin", "password": os.environ["SECRET"]}).encode(), {"x-csrf-token": t}); o.open(q); sys.exit(0 if json.load(o.open("https://127.0.0.1/api/config")).get("uid") == 1 else 1)' 2>/dev/null && exit 0; sleep 5; done; exit 1
+services: [nginx, postgresql, nodebb, webmin, cron, postfix, ssh]
+urls:
+  - {url: 'https://127.0.0.1/', status: 200}
+  # port 80 of the loopback is keel-default's (decision 0079): with the
+  # self-signed certificate of the first boot it serves NodeBB as 443 does
+  - {url: 'http://127.0.0.1/', status: 200}
+  - {url: 'http://127.0.0.1/keel-health', status: 204}
+  - {url: 'https://127.0.0.1:12321/', status: 200}
+# The stack check of lnpp is not part of the NodeBB product, and Redis is
+# not in the image (note 0082, section 3).
+forbidden:
+  - {kind: pgsql-database, name: keel_check}
+  - {kind: hook, name: 40lnpp-check}
+  - {kind: path, name: /etc/nginx/keel-default.d/50-keel-lnpp.conf}
+  - {kind: path, name: /usr/share/keel-lnpp}
+  - {kind: path, name: /usr/lib/systemd/system/keel-lnpp-check.socket}
+  - {kind: path, name: /usr/lib/systemd/system/keel-lnpp-check.service}
+  - {kind: path, name: /usr/bin/redis-server}
+# The VM of the vm-iso pass: sharp 0.35.5 of NodeBB needs the CPU level
+# x86-64-v2 and does not start on kvm64, the default of the runner.
+vm:
+  cpu: x86-64-v2-AES
+screenshots:
+  - name: nodebb
+    url: /login
+    after: /
+    login: {user_field: '#username', user: admin, password_field: '#password', secret: app, submit: '#login'}
+    wait: 8
+  - name: webmin
+    port: 12321
+    url: /
+    login: {user_field: 'input[name=user]', user: root, password_field: 'input[name=pass]', secret: root, submit: 'button[type=submit]'}
+    wait: 20
+# The cloud modes (decision 0076): PostgreSQL is a replicating engine (the
+# pair of decisions 0054 and 0057), and the uploads follow the VIP. The
+# prompts are the titles of the confconsole screens, the shape of the
+# reference contract of .github (tests/fixtures/commission/wordpress.yaml).
+# This part is declared for the cloud passes; the single node passes do not
+# read it.
+cloud:
+  capture:
+    # keel1: an invite without a VIP, keel2: one that carries it (keel 0.23.83)
+    invite: 'keel[12]:[A-Za-z0-9_.~+/=-]+'
+    # the label anchors it: the usage screen shows the node's own addresses too
+    vip: 'VIP:? +([0-9a-f]{1,4}(:[0-9a-f]{0,4}){2,7})'
+  # the screens on which a node waits for another: no key while they are up
+  waits: [Waiting for the nodes]
+  # the proofs across the pair, in order: one VIP holder, a row written on
+  # the primary and read on the standby, the filestore folder types of
+  # Syncthing, NodeBB serving on the node that holds the VIP, and a promote
+  # and its return
+  # modes: a check runs only in the cloud modes it names; one without
+  # modes runs in both (keel-commission of Keel-Linux/.github)
+  checks:
+    - {id: vip-holder, at: all, run: 'keel vip status', match: 'carried here: yes', count: 1}
+    - {id: voters, at: all, run: 'keel mesh status --json | grep -o "\"healthy_voters\": *[0-9]*"', match: ': *3$', count: 3, modes: [cloud_advanced]}
+    - {id: witness-no-data, at: witness, run: 'test ! -e /var/lib/postgresql/17/main && test ! -e /var/www/nodebb && echo nodata', match: '^nodata$', modes: [cloud_advanced]}
+    # the standby is a copy of the primary, made before the pair formed:
+    # the same cluster (system identifier) and the primary's first boot
+    # data (a MariaDB replica was not seeded, keel-lnmp BR1/BR2 2026-11-06)
+    - {id: seeded, at: 'primary,replica', run: '{ runuser -u postgres -- psql -Atc "SELECT system_identifier FROM pg_control_system()"; runuser -u postgres -- psql -d nodebb -Atc "SELECT data->>''username'' FROM legacy_hash WHERE _key = ''user:1''"; } | tr "\n" " "', same: true}
+    - {id: row-written, at: primary, run: 'runuser -u postgres -- psql -v ON_ERROR_STOP=1 -d postgres -qc "CREATE TABLE IF NOT EXISTS kc_probe (v int); INSERT INTO kc_probe VALUES (42)"'}
+    - {id: row-replicated, at: replica, run: 'sleep 5; runuser -u postgres -- psql -d postgres -Atc "SELECT v FROM kc_probe"', match: '^42$'}
+    - {id: replica-in-recovery, at: replica, run: 'runuser -u postgres -- psql -d postgres -Atc "SELECT pg_is_in_recovery()"', match: '^t$'}
+    - {id: files-follow, at: replica, run: 'k=$(cat /var/lib/keel/filesync/apikey); curl -s -H "X-API-Key: $k" http://127.0.0.1:8384/rest/config/folders', match: 'receiveonly'}
+    - {id: files-sent, at: primary, run: 'k=$(cat /var/lib/keel/filesync/apikey); curl -s -H "X-API-Key: $k" http://127.0.0.1:8384/rest/config/folders', match: 'sendonly'}
+    # Monit watches no unit of lnpp's check page: until keel-lnpp 19.0-9 the
+    # manifest of lnpp named the page as a process, NodeBB removes the page,
+    # and Monit sent a critical alert on each node, then stopped the watch
+    # (release A3, 2026-11-10)
+    - {id: monit-no-check-page, at: 'primary,replica', run: 'f=/etc/keel/monit/keel-manifest.conf; [ -s $f ] && ! grep -q keel-lnpp-check $f && echo clean', match: '^clean$'}
+    # each file sync folder of each node has no error (the defect of keel-odoo
+    # in release A3, 2026-11-10: a path that was not in the image). The
+    # output is one line, the count of the folders with an empty error. The
+    # chain replicates two paths: /var/www/keel-default of keel-web, and
+    # the uploads of nodebb.yaml. A count that is not
+    # two is a folder that is not there or a status that has no answer
+    - {id: folders-ok, at: 'primary,replica', run: 'k=$(cat /var/lib/keel/filesync/apikey); a=http://127.0.0.1:8384/rest; for id in $(curl -s -H "X-API-Key: $k" $a/config/folders | grep -o "\"id\": *\"keel-[0-9a-f]*\"" | grep -o "keel-[0-9a-f]*"); do curl -s -H "X-API-Key: $k" "$a/db/status?folder=$id" | grep -o "\"error\": *\"[^\"]*\""; done | sort | uniq -c | tr -s " \n" " "', match: '^ ?2 "error": "" ?$'}
+    # a file that NodeBB's user writes in the uploads of the primary comes to
+    # the replica, and nodebb owns it and its directory there, so NodeBB can
+    # write after a promotion
+    - {id: file-written, at: primary, run: 'runuser -u nodebb -- sh -c "mkdir -p /var/lib/nodebb/uploads/kc && echo 42 > /var/lib/nodebb/uploads/kc/probe" && echo written', match: '^written$'}
+    - {id: file-replicated, at: replica, run: 'f=/var/lib/nodebb/uploads/kc/probe; for i in $(seq 60); do [ -f $f ] && break; sleep 2; done; echo "$(cat $f) $(stat -c %U ${f%/*} $f | tr "\n" " ")"', match: '^42 nodebb nodebb ?$'}
+    - {id: file-removed, at: primary, run: 'rm -rf /var/lib/nodebb/uploads/kc; [ ! -e /var/lib/nodebb/uploads/kc ] && echo removed', match: '^removed$'}
+    - {id: nodebb-on-primary, at: primary, run: 'curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4567/api/config', match: '^200$'}
+    - {id: replica-notice, at: replica, run: 'curl -sk https://127.0.0.1/', match: 'This node is the replica of a cloud pair.'}
+    # the semi-synchronous fallback (keel 0.23.88): with the standby's server
+    # stopped, a write on the primary still finishes; monit and the replica's
+    # keel-database-watch.timer are stopped too, so nothing starts the server
+    # again during the check: the watch's follow starts a replica's server
+    # that does not answer, within 30 s, and the standby then streams before
+    # the primary's 30 s fallback (release A, BR1, 2026-11-09). The primary also
+    # sends the alert of the fallback to the ntfy topic of the pass
+    # (KC_NTFY_URL of keel-commission): it came 36 s after the stop on
+    # BR1/BR2, 2026-11-07
+    - {id: standby-stopped, at: replica, run: 'systemctl stop monit keel-database-watch.timer keel-database-watch.service; systemctl stop postgresql; systemctl is-active postgresql@17-main || echo stopped', match: 'stopped', modes: [cloud_simple]}
+    - {id: write-without-standby, at: primary, run: 'timeout 180 runuser -u postgres -- psql -v ON_ERROR_STOP=1 -d postgres -qc "CREATE TABLE IF NOT EXISTS kc_async (v int); INSERT INTO kc_async VALUES (1)" && echo written', match: '^written$', alert: fell back to asynchronous, within: 90, modes: [cloud_simple]}
+    - {id: standby-back, at: replica, run: 'systemctl start postgresql; systemctl start keel-database-watch.timer monit; for i in $(seq 60); do s=$(runuser -u postgres -- psql -Atc "SELECT status FROM pg_stat_wal_receiver" 2>/dev/null); [ "$s" = streaming ] && break; sleep 3; done; echo $s', match: '^streaming$', modes: [cloud_simple]}
+    - {id: async-row-replicated, at: replica, run: 'for i in $(seq 30); do v=$(runuser -u postgres -- psql -d postgres -Atc "SELECT count(*) FROM kc_async" 2>/dev/null); [ "$v" = 1 ] && break; sleep 2; done; echo $v', match: '^1$', modes: [cloud_simple]}
+    - {id: promote, at: replica, run: 'keel vip promote', modes: [cloud_simple]}
+    - {id: promoted-holder, at: replica, run: 'keel vip status', match: 'carried here: yes', modes: [cloud_simple]}
+    # serve.py starts NodeBB on the promoted node: about 8 s on CT 9385
+    - {id: nodebb-on-promoted, at: replica, run: 'for i in $(seq 60); do c=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4567/api/config); [ "$c" = 200 ] && break; sleep 2; done; echo $c', match: '^200$', modes: [cloud_simple]}
+    # the old primary follows the promoted node before the VIP goes back: a
+    # return before it has rejoined leaves the pair with no writable server
+    # (keel 0.23.84, keel-lnpp BR1/BR2 2026-11-06)
+    - {id: rejoined, at: primary, run: 'for i in $(seq 60); do s=$(runuser -u postgres -- psql -Atc "SELECT status FROM pg_stat_wal_receiver"); [ "$s" = streaming ] && break; sleep 3; done; echo $s', match: '^streaming$', modes: [cloud_simple]}
+    - {id: return, at: primary, run: 'keel vip promote', modes: [cloud_simple]}
+    - {id: returned-holder, at: primary, run: 'keel vip status', match: 'carried here: yes', modes: [cloud_simple]}
+    - {id: nodebb-returned, at: primary, run: 'for i in $(seq 60); do c=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4567/api/config); [ "$c" = 200 ] && break; sleep 2; done; echo $c', match: '^200$', modes: [cloud_simple]}
+    - {id: probe-dropped, at: primary, run: 'runuser -u postgres -- psql -v ON_ERROR_STOP=1 -d postgres -qc "DROP TABLE kc_probe; DROP TABLE IF EXISTS kc_async"', modes: [cloud_simple]}
+    - {id: probe-dropped, at: primary, run: 'runuser -u postgres -- psql -v ON_ERROR_STOP=1 -d postgres -qc "DROP TABLE kc_probe"', modes: [cloud_advanced]}
+nodes:
+  - name: primary
+    site: br1
+    mode: cloud_simple
+    role: primary
+    # the hotkeys of the menus (the first letter of an item): an arrow key is
+    # an escape sequence, and the console of a container can hand dialog its
+    # ESC alone, which cancels the screen (BR1, 2026-11-06)
+    answers:
+      - {id: mode, prompt: Installation mode, keys: 'C{ret}'}
+      - {id: role, prompt: Role of this node, keys: 'P{ret}'}
+      - {id: invite, prompt: Invite a node, keys: '{ret}'}
+  - name: replica
+    site: br2
+    mode: cloud_simple
+    role: replica
+    answers:
+      - {id: mode, prompt: Installation mode, keys: 'C{ret}'}
+      - {id: role, prompt: Role of this node, keys: 'R{ret}'}
+      - {id: join, prompt: Join a mesh, keys: '{invite:1}{ret}'}
+    # NodeBB does not run on the standby: each page there is the notice of the
+    # replica (serve.py's mark, 60-keel-nodebb.conf), and the shot proves the
+    # notice instead of a login
+    screenshots:
+      - {name: nodebb, url: /, text: This node is the replica of a cloud pair., wait: 8}
+      - name: webmin
+        port: 12321
+        url: /
+        login: {user_field: 'input[name=user]', user: root, password_field: 'input[name=pass]', secret: root, submit: 'button[type=submit]'}
+        # the dashboard of Webmin draws after the login; 8 s took a half
+        # drawn page on a busy VM of BR2 (vm-iso, 2026-11-06)
+        wait: 20
+  # cloud advanced (decision 0076): the primary and the Keel Core witness
+  # on BR1, the replica on BR2 while BR3 is down. The names differ from the
+  # nodes of cloud simple: a record names each check NODE:CHECK.
+  - name: adv-primary
+    site: br1
+    mode: cloud_advanced
+    role: primary
+    answers:
+      - {id: mode, prompt: Installation mode, keys: 'CC{ret}'}
+      - {id: role, prompt: Role of this node, keys: 'P{ret}'}
+      - {id: invite, prompt: Invite a node, keys: '{ret}'}
+      - {id: invite2, prompt: Invite a node, keys: '{ret}'}
+  - name: adv-replica
+    site: br2
+    mode: cloud_advanced
+    role: replica
+    answers:
+      - {id: mode, prompt: Installation mode, keys: 'CC{ret}'}
+      - {id: role, prompt: Role of this node, keys: 'R{ret}'}
+      - {id: join, prompt: Join a mesh, keys: '{invite:1}{ret}'}
+    screenshots:
+      - {name: nodebb, url: /, text: This node is the replica of a cloud pair., wait: 8}
+      - name: webmin
+        port: 12321
+        url: /
+        login: {user_field: 'input[name=user]', user: root, password_field: 'input[name=pass]', secret: root, submit: 'button[type=submit]'}
+        wait: 20
+  - name: witness
+    site: br1
+    mode: cloud_advanced
+    role: witness
+    # the witness is a node of keel-core, with the contract of keel-core
+    # (a copy of its tests/commission.yaml): the image of keel-core is a new
+    # build for each release, so the run gives it as KC_IMAGE_WITNESS
+    contract: commission-core.yaml
+    answers:
+      - {id: mode, prompt: Installation mode, keys: 'CC{ret}'}
+      - {id: role, prompt: Role of this node, keys: 'W{ret}'}
+      - {id: join, prompt: Join a mesh, keys: '{invite:2}{ret}'}

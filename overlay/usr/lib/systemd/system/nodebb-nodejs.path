@@ -1,0 +1,15 @@
+# Restart NodeBB when the Node.js binary changes (handbook note 0083, open
+# point 5). keel-nodejs-24 has no maintainer script, so an apt upgrade
+# leaves NodeBB on the old binary until it restarts (CT 9385, 2026-11-11:
+# /proc/PID/exe "(deleted)"). The application layer restarts its own
+# service: dpkg puts the new binary in place with a rename, and this unit
+# starts nodebb-nodejs.service then.
+[Unit]
+Description=Restart NodeBB when the Keel Node.js binary changes
+
+[Path]
+PathChanged=/usr/lib/keel-nodejs/bin/node
+Unit=nodebb-nodejs.service
+
+[Install]
+WantedBy=paths.target

@@ -1,3 +1,76 @@
+turnkey-nodebb-19.0 (9) turnkey; urgency=low
+
+  * The first boot hook says why NodeBB cannot start on a CPU that is not
+    of the x86-64-v2 level. On the ISO in a VM of the CPU model kvm64 (the
+    default of `qm create`), ./nodebb setup stopped with 'Could not load
+    the "sharp" module ... Prebuilt binaries for Linux x64 require v2
+    microarchitecture'. 45nodebb failed with exit code 1, and the forum
+    answered 502 (commissioning of 19.0-8, vm-iso, BR1 and BR2,
+    2026-11-12). An LXC uses the CPU of the host, so it passed.
+  * nodebb.py reads the flags of /proc/cpuinfo before it asks or changes
+    anything. When a flag of the level is missing, it stops and tells the
+    admin to set the CPU type of the VM to x86-64-v2-AES (the default of
+    the Proxmox VE web interface) or host, and to run 45nodebb again.
+  * The WebAssembly build of sharp is not a fallback: it needs SSE4.1
+    too ("Wasm SIMD unsupported" on kvm64, VM 9448).
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Thu, 12 Nov 2026 23:00:00 +0000
+
+turnkey-nodebb-19.0 (8) turnkey; urgency=low
+
+  * The interactive first boot configures NodeBB. On keel-init and on the
+    ISO, 45nodebb stopped with "no DB_PASS" and asked no NodeBB password:
+    35pgsqlpass asks the password of postgres on the console and gives it
+    to no later hook. So NodeBB stayed closed, and the forum answered 502
+    (commissioning of 19.0-7, lxc-interactive and vm-iso, BR1 and BR2,
+    2026-11-12).
+  * nodebb.py asks the NodeBB password on the console (the screen "NodeBB
+    password") when no secrets.app_password is declared, as odoo.py does.
+  * NodeBB logs in to PostgreSQL on the socket /run/postgresql with the
+    peer authentication of the user nodebb, as serve.py does. The role
+    nodebb has no password, config.json holds no database password, and
+    the hook needs no DB_PASS. The contract has no proof of the role nodebb
+    with the db secret now: the NodeBB login proof shows the database.
+  * ./nodebb setup runs with no console on its standard input, so a
+    question of the setup can never hold the first boot.
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Thu, 12 Nov 2026 18:00:00 +0000
+
+turnkey-nodebb-19.0 (7) turnkey; urgency=low
+
+  * The plan names keel-nodejs-24: one package for each Node.js line (the
+    maintainer, 2026-11-12). nodebb-nodejs.path restarts NodeBB when the
+    Node.js binary changes, as the package has no maintainer script. An
+    apt pin keeps line 24 and refuses the other lines.
+  * The session secret is in the one-row table keel_nodebb_secret of the
+    database, written one time by the first writable boot, from
+    KEEL_SECRET_NODEBB_SECRET of the spec or new. serve.py gives it to
+    NodeBB in the environment.
+  * Handbook note 0082, steps 1 to 5: the layer is built on lnpp, not on
+    the nodejs-nginx stack. NodeBB 4.16.7 (was 4.10.3) runs on the
+    PostgreSQL of lnpp in every mode. Redis, the own Nginx site, the build
+    time apt block and the copy of the stack layer are gone.
+  * Node.js 24 comes from the Keel package keel-nodejs (note 0083), not
+    from Debian. The dependencies come from a reviewed lock file with npm
+    ci. The code in /var/www/nodebb is owned by root; NodeBB writes only
+    build/, logs/, the pidfile, the emoji data of nodebb-plugin-emoji and
+    /var/lib/nodebb/uploads, which a pair replicates.
+  * usr/lib/keel-nodebb/serve.py runs NodeBB on the node whose PostgreSQL
+    accepts writes, runs the schema upgrade before a start, builds the
+    assets again when the active plugins change, and shows the replica
+    notice on a standby.
+  * The first boot hook 45nodebb and nodebb.py write config.json, set the
+    role nodebb with a SCRAM verifier, and run the setup with the admin
+    answers in the environment. The routes are in keel-web's include
+    directories. The manifest nodebb.yaml and the commissioning contract
+    are new.
+  * Found and fixed on a real node (CT 9385, BR1, 2026-11-11): the emoji
+    plugin writes its build directory at the first start, the setup copies
+    the favicon into uploads/system with no mkdir, the tarball modes were
+    0664 and 0775, and a worker of a killed loader kept port 4567.
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Thu, 12 Nov 2026 00:10:00 +0000
+
 turnkey-nodebb-19.0 (6) turnkey; urgency=low
 
   * The overlay no longer ships /etc/apt/sources.list.d/keel.sources

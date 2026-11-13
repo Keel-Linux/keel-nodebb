@@ -1,206 +1,125 @@
 #!/usr/bin/env bats
-# The first boot hook firstboot.d/40nodebb (decision 0004): every path it
-# takes runs against scratch directories, and every command that would touch
-# the system (systemctl, redis-cli, nginx, runuser, chown) is a PATH stub
-# that records its arguments. Nothing here needs root or a network.
+# The first boot hook firstboot.d/45nodebb (decision 0004), run for real
+# against scratch directories. bin/nodebb.py and systemctl are PATH stubs
+# that record how they were called; the Python of nodebb.py has its own
+# tests (tests/python). Nothing here needs root, NodeBB or a database.
+#
+# Whether anybody can answer the console is inithooks' rule (lib/console.sh,
+# as for 35pgsqlpass and 45odoo): tty1 of an LXC container is a terminal
+# nobody is attached to, so a test of standard input is not enough.
+
+# Each test runs in its own subshell, so a change of the environment in
+# a test stays in that test. The stub and tree bodies are in single quotes
+# on purpose: they expand where they run.
+# shellcheck disable=SC2016,SC2030,SC2031
 
 bats_require_minimum_version 1.5.0
 
 setup() {
     ROOT="$BATS_TEST_DIRNAME/.."
-    HOOK="$ROOT/overlay/usr/lib/inithooks/firstboot.d/40nodebb"
+    HOOK="$ROOT/overlay/usr/lib/inithooks/firstboot.d/45nodebb"
     scratch="$BATS_TEST_TMPDIR/hook"
-    mkdir -p "$scratch/bin" "$scratch/nodebb" "$scratch/nginx"
+    mkdir -p "$scratch/bin" "$scratch/inithooks/bin" "$scratch/inithooks/lib"
+    cat > "$scratch/inithooks/lib/console.sh" <<'CON'
+console_unattended() { [[ "${INITHOOKS_UNATTENDED:-no}" != "no" ]]; }
+console_deferred() { echo "INFO: [$1] not asked, nobody can answer ($INITHOOKS_UNATTENDED): $2" >&2; echo "$1" >> "$DEFERRED"; }
+CON
+    cat > "$scratch/inithooks/bin/nodebb.py" <<'PY'
+#!/bin/sh
+echo "nodebb.py $* APP_PASS=${APP_PASS-unset} KEEL_SECRET_NODEBB_SECRET=${KEEL_SECRET_NODEBB_SECRET-unset}" >> "$CALLS"
+exit "${NODEBB_PY_STATUS:-0}"
+PY
+    chmod +x "$scratch/inithooks/bin/nodebb.py"
+    printf '#!/bin/sh\necho "systemctl $*" >> "$CALLS"\n' > "$scratch/bin/systemctl"
+    printf '#!/bin/sh\necho node.example.org\n' > "$scratch/bin/hostname"
+    chmod +x "$scratch/bin/systemctl" "$scratch/bin/hostname"
+    PATH="$scratch/bin:$PATH"
 
-    export NODEBB_DIR="$scratch/nodebb"
-    export NGINX_PROXY_CONF="$scratch/nginx/nodebb-proxy.conf"
     export INITHOOKS_DEFAULT="$scratch/default-inithooks"
     export INITHOOKS_CONF="$scratch/inithooks.conf"
     export CALLS="$scratch/calls"
-
+    export DEFERRED="$scratch/deferred"
+    export INITHOOKS_UNATTENDED=no
+    unset APP_PASS DB_PASS APP_DOMAIN APP_EMAIL APP_ADMIN_USER KEEL_SECRET_NODEBB_SECRET
     cat > "$INITHOOKS_DEFAULT" <<DEF
 INITHOOKS_CONF=$INITHOOKS_CONF
-INITHOOKS_PATH=$ROOT/overlay/usr/lib/inithooks
-INITHOOKS_LOGFILE=$scratch/inithooks.log
+INITHOOKS_PATH=$scratch/inithooks
 DEF
-
-    stub systemctl 'echo "systemctl $*" >> "$CALLS"'
-    stub nginx 'echo "nginx $*" >> "$CALLS"'
-    stub chown 'echo "chown $*" >> "$CALLS"'
-    stub redis-cli 'echo PONG'
-    # runuser -u USER -- CMD...: drop the three leading arguments and run
-    stub runuser 'echo "runuser $*" >> "$CALLS"; shift 3; exec "$@"'
-
-    cat > "$NODEBB_DIR/nodebb" <<'NODEBB'
-#!/bin/sh
-echo "nodebb $*" >> "$CALLS"
-[ "$1" = setup ] || exit 1
-printf '%s' "$2" > ./config.json
-NODEBB
-    chmod +x "$NODEBB_DIR/nodebb"
-    PATH="$scratch/bin:$PATH"
 }
 
-stub() {
-    printf '#!/bin/sh\n%s\n' "$2" > "$scratch/bin/$1"
-    chmod +x "$scratch/bin/$1"
-}
-
-write_conf() {
-    cat > "$INITHOOKS_CONF" <<CONF
-export APP_PASS=s3cret
-export APP_EMAIL=admin@keellinux.org
-export APP_DOMAIN=forum.keellinux.org
-export APP_ADMIN_USER=admin
-export APP_TRUSTED_PROXY=${1-2001:db8::13}
+@test "declared values go to nodebb.py, the passwords in the environment" {
+    cat > "$INITHOOKS_CONF" <<'CONF'
+export APP_PASS=app-secret
+export DB_PASS=db-secret
+export APP_DOMAIN=forum.example.org
+export APP_EMAIL=boss@example.org
+export APP_ADMIN_USER=boss
 CONF
+    run "$HOOK"
+    [ "$status" -eq 0 ]
+    [ "$(head -1 "$CALLS")" = "nodebb.py --domain=forum.example.org --email=boss@example.org --admin=boss APP_PASS=app-secret KEEL_SECRET_NODEBB_SECRET=" ]
+    [ "$(sed -n 2p "$CALLS")" = "systemctl try-restart nodebb.service" ]
+    [ ! -f "$DEFERRED" ]
 }
 
-@test "the hook runs the setup and reports the url and the admin user" {
-    write_conf
+@test "with no domain the name of the machine is the domain" {
+    printf 'export APP_PASS=a\nexport DB_PASS=b\n' > "$INITHOOKS_CONF"
     run "$HOOK"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"NodeBB set up at https://forum.keellinux.org"* ]]
-    [[ "$output" == *"admin user 'admin'"* ]]
-    [ -f "$NODEBB_DIR/config.json" ]
+    [[ "$(head -1 "$CALLS")" == "nodebb.py --domain=node.example.org --email= --admin= "* ]]
 }
 
-@test "the hook patches config.json for the loopback and the proxy" {
-    write_conf
+@test "a secret of the spec (KEEL_SECRET_NODEBB_SECRET of keel) goes to nodebb.py" {
+    printf 'export APP_PASS=a\nexport DB_PASS=b\nexport KEEL_SECRET_NODEBB_SECRET=s3\n' > "$INITHOOKS_CONF"
     run "$HOOK"
     [ "$status" -eq 0 ]
-    python3 -c 'import json, sys
-c = json.load(open(sys.argv[1]))
-assert c["bind_address"] == "::1", c
-assert c["port"] == 4567, c
-assert c["trust_proxy"] is True, c
-assert c["url"] == "https://forum.keellinux.org", c
-assert c["admin:username"] == "admin", c' "$NODEBB_DIR/config.json"
+    [[ "$(head -1 "$CALLS")" == *"KEEL_SECRET_NODEBB_SECRET=s3" ]]
 }
 
-@test "the hook renders the proxy conf from APP_TRUSTED_PROXY" {
-    write_conf 2001:db8::13
+@test "a headless first boot with no app password asks nothing and leaves it to keel-init" {
+    printf 'export DB_PASS=b\nexport APP_DOMAIN=forum.example.org\n' > "$INITHOOKS_CONF"
+    export INITHOOKS_UNATTENDED="the console has no size, nobody is attached to it"
     run "$HOOK"
     [ "$status" -eq 0 ]
-    grep -q '^geo \$realip_remote_addr \$nodebb_trusted_proxy {$' "$NGINX_PROXY_CONF"
-    grep -q '^    2001:db8::13 1;$' "$NGINX_PROXY_CONF"
-    grep -q '^set_real_ip_from 2001:db8::13;$' "$NGINX_PROXY_CONF"
-    grep -q '^real_ip_header X-Forwarded-For;$' "$NGINX_PROXY_CONF"
-    grep -q '^map "\$nodebb_trusted_proxy:\$http_x_forwarded_proto" \$nodebb_scheme {$' "$NGINX_PROXY_CONF"
+    [ "$(cat "$DEFERRED")" = 45nodebb ]
+    [[ "$output" == *"no APP_PASS: NodeBB stays closed until keel-init asks it"* ]]
+    [ ! -f "$CALLS" ]
 }
 
-@test "the hook checks the rendered nginx configuration" {
-    write_conf
+@test "a headless first boot with a DEFAULT app password asks nothing" {
+    printf 'export APP_PASS=DEFAULT\nexport DB_PASS=b\n' > "$INITHOOKS_CONF"
+    export INITHOOKS_UNATTENDED=yes
     run "$HOOK"
     [ "$status" -eq 0 ]
-    grep -q '^nginx -t$' "$CALLS"
+    [[ "$output" == *"no APP_PASS:"* ]]
+    [ ! -f "$CALLS" ]
 }
 
-@test "the hook starts redis, enables nodebb and restarts nginx" {
-    write_conf
+@test "with the app password and no DB_PASS a headless first boot configures NodeBB" {
+    # NodeBB logs in on the socket of PostgreSQL with peer authentication:
+    # DB_PASS is not used (lxc-interactive and vm-iso, 2026-11-12)
+    printf 'export APP_PASS=a\n' > "$INITHOOKS_CONF"
+    export INITHOOKS_UNATTENDED=yes
     run "$HOOK"
     [ "$status" -eq 0 ]
-    grep -q '^systemctl start redis-server.service$' "$CALLS"
-    grep -q '^systemctl enable --now nodebb.service$' "$CALLS"
-    grep -q '^systemctl restart nginx.service$' "$CALLS"
+    [ ! -f "$DEFERRED" ]
+    [[ "$(head -1 "$CALLS")" == *"APP_PASS=a "* ]]
 }
 
-@test "the hook skips the asset build when the image carries them" {
-    write_conf
-    mkdir -p "$NODEBB_DIR/build/public"
+@test "with a console and no password nodebb.py runs and gives its answer" {
+    : > "$INITHOOKS_CONF"
+    export NODEBB_PY_STATUS=1
     run "$HOOK"
-    [ "$status" -eq 0 ]
-    grep -q -- '--skip-build' "$CALLS"
+    [ "$status" -eq 1 ]
+    [[ "$(head -1 "$CALLS")" == "nodebb.py --domain=node.example.org"*"APP_PASS=unset "* ]]
+    # nothing restarts a NodeBB that the hook did not configure
+    [ "$(wc -l < "$CALLS")" -eq 1 ]
 }
 
-@test "the hook builds the assets when the image does not carry them" {
-    write_conf
-    run "$HOOK"
-    [ "$status" -eq 0 ]
-    run ! grep -q -- '--skip-build' "$CALLS"
-}
-
-@test "the hook is idempotent: a second run changes nothing" {
-    write_conf
-    run "$HOOK"
-    [ "$status" -eq 0 ]
-    first=$(cat "$NGINX_PROXY_CONF")
-    cp "$NODEBB_DIR/config.json" "$scratch/config.first"
-    rm -f "$CALLS"
-
-    run "$HOOK"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"already set up"* ]]
-    [[ "$output" == *"nothing to do"* ]]
-    [ ! -e "$CALLS" ]
-    [ "$(cat "$NGINX_PROXY_CONF")" = "$first" ]
-    diff -q "$NODEBB_DIR/config.json" "$scratch/config.first"
-}
-
-@test "the hook is idempotent even when the inithooks conf is gone" {
-    write_conf
-    run "$HOOK"
-    [ "$status" -eq 0 ]
+@test "with no conf file the hook still runs" {
     rm -f "$INITHOOKS_CONF"
+    export APP_PASS=a
     run "$HOOK"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"already set up"* ]]
-}
-
-@test "the hook refuses an APP_TRUSTED_PROXY nginx would not accept" {
-    write_conf '"2001:db8::13; }"'
-    run "$HOOK"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"is not an address nginx accepts"* ]]
-}
-
-@test "the hook trusts nobody when APP_TRUSTED_PROXY is empty" {
-    write_conf '""'
-    run "$HOOK"
-    [ "$status" -eq 0 ]
-    grep -q '^geo \$realip_remote_addr \$nodebb_trusted_proxy {$' "$NGINX_PROXY_CONF"
-    run ! grep -q '^set_real_ip_from' "$NGINX_PROXY_CONF"
-}
-
-@test "the hook falls back to the hostname when no domain is declared" {
-    write_conf
-    sed -i '/APP_DOMAIN/d' "$INITHOOKS_CONF"
-    export FQDN=forum2.keellinux.org
-    run "$HOOK"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"https://forum2.keellinux.org"* ]]
-}
-
-@test "the hook stops when APP_PASS is missing and no terminal can be asked" {
-    write_conf
-    sed -i '/APP_PASS/d' "$INITHOOKS_CONF"
-    run "$HOOK" < /dev/null
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"no APP_PASS"* ]]
-    [[ "$output" == *"no terminal to ask on"* ]]
-}
-
-@test "the hook runs with no inithooks conf at all and stops on the password" {
-    run "$HOOK" < /dev/null
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"no APP_PASS"* ]]
-}
-
-@test "the hook asks for the password on a terminal and uses the answer" {
-    write_conf
-    sed -i '/APP_PASS/d' "$INITHOOKS_CONF"
-    # the dialog lives next to the library under INITHOOKS_PATH; point that
-    # at a scratch tree whose lib is the real one and whose bin is a stub
-    mkdir -p "$scratch/inithooks/bin"
-    ln -s "$ROOT/overlay/usr/lib/inithooks/lib" "$scratch/inithooks/lib"
-    printf '#!/bin/sh\nprintf "APP_PASS=%%s\\n" fromdialog\n' \
-        > "$scratch/inithooks/bin/nodebb.py"
-    chmod +x "$scratch/inithooks/bin/nodebb.py"
-    sed -i "s|^INITHOOKS_PATH=.*|INITHOOKS_PATH=$scratch/inithooks|" "$INITHOOKS_DEFAULT"
-
-    # script(1) gives the hook a terminal on stdin, which is the only way
-    # into the dialog branch
-    run script -qec "$HOOK" /dev/null
-    [ "$status" -eq 0 ]
-    grep -q fromdialog "$NODEBB_DIR/config.json"
+    [[ "$(head -1 "$CALLS")" == *"APP_PASS=a "* ]]
 }

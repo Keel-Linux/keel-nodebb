@@ -1,0 +1,49 @@
+# NodeBB 4.16.7 (handbook note 0082). The unit runs on every node. Its
+# process (usr/lib/keel-nodebb/serve.py) asks PostgreSQL its role and runs
+# NodeBB only while PostgreSQL accepts writes: NodeBB writes at start. On a
+# standby nothing listens on 4567. It is not a process of the manifest:
+# Monit would start it on a standby.
+[Unit]
+Description=NodeBB forum (Keel)
+After=network.target postgresql.service
+# serve.py decides, so a start that fails does not count against a limit.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=nodebb
+Group=nodebb
+WorkingDirectory=/var/www/nodebb
+Environment=NODE_ENV=production HOME=/var/lib/nodebb
+ExecStart=/usr/bin/python3 /usr/lib/keel-nodebb/serve.py
+Restart=on-failure
+RestartSec=2
+KillMode=mixed
+TimeoutStopSec=60
+StandardOutput=journal
+StandardError=journal
+# The code in /var/www/nodebb is root's. NodeBB writes only these paths of
+# each node (note 0082, section 4): the assets, the logs and the pidfile,
+# and the emoji data of nodebb-plugin-emoji (conf.d/main). The uploads are
+# in /var/lib/nodebb, which the pair replicates.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nodebb /var/www/nodebb/build /var/www/nodebb/logs /var/www/nodebb/pidfile
+ReadWritePaths=/var/www/nodebb/node_modules/nodebb-plugin-emoji/build
+# /run/keel-nodebb/replica: serve.py writes it on a standby, and Nginx reads
+# it to show the notice of the replica
+RuntimeDirectory=keel-nodebb
+RuntimeDirectoryMode=0755
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

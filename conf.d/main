@@ -1,117 +1,152 @@
 #!/bin/bash -ex
-# Install NodeBB under /var/www/nodebb from the pinned release tarball,
-# fetch its dependencies, run a build time setup against a scratch Redis so
-# the static assets are compiled in the image, then remove every trace of
-# that setup: the first boot hook (firstboot.d/40nodebb) runs the real
-# setup from the instance spec.
+# The nodebb layer (handbook note 0082, section 7, step 1): NodeBB 4.16.7 on
+# the lnpp layer, with the Node.js of the Keel package keel-nodejs (note
+# 0083). It runs in the image chroot, after the overlay is in place.
+#
+# 0. Node.js is the package of one line, keel-nodejs-24 (note 0083; one
+#    package for each line, the maintainer on 2026-11-12).
+# 1. The code is the release tarball of NodeBB at a pinned sha256, owned by
+#    root in /var/www/nodebb. The dependencies come from the reviewed lock
+#    file of this layer (usr/share/keel-nodebb/package-lock.json) with
+#    `npm ci`: NodeBB ships no lock file. npm 11 runs no install script of
+#    a dependency unless it is approved, and none is.
+# 2. NodeBB writes build/, logs/ and the pidfile of each node, and its
+#    uploads in /var/lib/nodebb/uploads, which a pair replicates. The user
+#    nodebb owns these and nothing else of the tree.
+# 3. The assets are built here, so the first boot is short. A build needs a
+#    database, so this script runs a scratch setup against the PostgreSQL
+#    of the image and removes the database, the role and config.json
+#    after it. The first boot hook (45nodebb) makes them again from the spec.
+# 4. The check page of lnpp is removed, as keel-odoo removes it.
 
-# 4.10.3 is the last release whose own dependency pins run on Node.js 20
-# (Debian 13): 4.11.0 and later pin undici 8.1.0, which needs Node 22.19.
-NODEBB_VERSION=4.10.3
-NODEBB_SHA256=093b29081970f30d7f3b3863833e606861da29c6cf9438616de3c6c6675906a7
+# The shebang sets -e and -x, and a call as `bash conf.d/main` ignores it.
+set -ex
+
+NODEBB_VERSION=4.16.7
+NODEBB_SHA256=6aedead659866e442e11be7a72cc07a63ae644a72d99ff61ed3b25e5178daf8d
 NODEBB_URL="https://github.com/NodeBB/NodeBB/archive/refs/tags/v${NODEBB_VERSION}.tar.gz"
-NODEBB_USER=nodebb
 NODEBB_DIR=/var/www/nodebb
-REDIS_CONF=/etc/redis/redis.conf
+NODE_LINE=24
+LOCK=/usr/share/keel-nodebb/package-lock.json
 
-# npm reaches the registry through the build proxy when fab sets one, and
-# always through the system trust store.
 export npm_config_cafile=/etc/ssl/certs/ca-certificates.crt
-if [[ -n "$FAB_HTTP_PROXY" ]]; then
+if [ -n "${FAB_HTTP_PROXY:-}" ]; then
     export http_proxy="$FAB_HTTP_PROXY" https_proxy="$FAB_HTTP_PROXY"
 fi
 
-# service user
-adduser --system --group --home "$NODEBB_DIR" --no-create-home \
-    --shell /usr/sbin/nologin "$NODEBB_USER"
+# Node.js is the Keel package, never a download of this layer (note 0083)
+dpkg-query -W -f '${Status}\n' "keel-nodejs-$NODE_LINE" | grep -qx 'install ok installed'
+[ "$(node --version | cut -d. -f1)" = "v$NODE_LINE" ]
 
-# release tarball, verified against the pinned digest
-tmp=$(mktemp -d)
-curl -fsSL -o "$tmp/nodebb.tar.gz" "$NODEBB_URL"
+adduser --system --group --home /var/lib/nodebb --no-create-home \
+    --shell /usr/sbin/nologin nodebb
+install -d -o nodebb -g nodebb -m 0750 /var/lib/nodebb
+install -d -o nodebb -g nodebb -m 0755 /var/lib/nodebb/uploads
+install -d -m 0755 /var/lib/keel-nodebb
+
+# the release tarball, checked against the pinned digest
+tmp="$(mktemp -d)"
+curl --fail --silent --show-error --location --retry 3 --output "$tmp/nodebb.tar.gz" "$NODEBB_URL"
 echo "$NODEBB_SHA256  $tmp/nodebb.tar.gz" | sha256sum --check --strict
+rm -rf "$NODEBB_DIR"
 mkdir -p "$NODEBB_DIR"
-tar -C "$NODEBB_DIR" --strip-components=1 -xzf "$tmp/nodebb.tar.gz"
+tar -C "$NODEBB_DIR" --strip-components=1 --no-same-owner -xzf "$tmp/nodebb.tar.gz"
 rm -rf "$tmp"
 grep -q "\"version\": \"$NODEBB_VERSION\"" "$NODEBB_DIR/install/package.json"
-chown -R "$NODEBB_USER:$NODEBB_USER" "$NODEBB_DIR"
+# No container files of upstream in a Keel image
+rm -rf "$NODEBB_DIR"/Dockerfile "$NODEBB_DIR"/dev.Dockerfile "$NODEBB_DIR"/docker-compose*.yml \
+    "$NODEBB_DIR"/.docker "$NODEBB_DIR"/.dockerignore
+# tar as root keeps the modes of the archive, 0664 and 0775 (CT 9385,
+# 2026-11-11): nobody but root writes the code
+chmod -R u+rwX,go+rX,go-w "$NODEBB_DIR"
 
-as_nodebb() {
-    runuser -u "$NODEBB_USER" -- env HOME="$NODEBB_DIR" NODE_ENV=production \
-        npm_config_cafile="$npm_config_cafile" \
-        http_proxy="${http_proxy:-}" https_proxy="${https_proxy:-}" "$@"
-}
-
-# dependencies: what "./nodebb install" does, as explicit steps
 cd "$NODEBB_DIR"
-as_nodebb cp install/package.json package.json
-as_nodebb npm install --omit=dev --no-audit --no-fund
+cp install/package.json package.json
+install -m 0644 "$LOCK" package-lock.json
+python3 -c 'import json, sys; lock = json.load(open(sys.argv[1])); sys.exit(0 if lock["packages"][""]["version"] == sys.argv[2] else 1)' \
+    package-lock.json "$NODEBB_VERSION"
+HOME=/root npm ci --omit=dev --no-audit --no-fund
+rm -rf /root/.npm
+# secure-keys (a dependency of nconf) ships its test suite, and that suite
+# holds a private key. The key would be the same on every machine, so the
+# release key scan refuses the layer. Nothing loads the test suite.
+test -f node_modules/secure-keys/test/test.secret.key
+rm -rf node_modules/secure-keys/test
 
-# Redis: loopback only, both families (Debian's default, made explicit)
-sed -i 's|^bind .*|bind ::1 127.0.0.1|' "$REDIS_CONF"
-grep -q '^bind ::1 127.0.0.1$' "$REDIS_CONF"
+# what NodeBB writes on each node
+install -d -o nodebb -g nodebb -m 0755 build logs
+install -o nodebb -g nodebb -m 0644 /dev/null pidfile
 
-# build time setup against a scratch Redis so the assets get compiled; the
-# values are throwaway and everything they produce is wiped below. The
-# scratch instance is a plain process without persistence on its own port:
-# the chroot shares the host's network, so a service started here would
-# collide with, or survive as, a process on the build host.
-SCRATCH_PORT=16379
-runuser -u redis -- redis-server --bind 127.0.0.1 --port $SCRATCH_PORT --save "" \
-    --appendonly no --dir /tmp --daemonize yes --pidfile /tmp/redis-scratch.pid \
-    --logfile /tmp/redis-scratch.log
-for _ in $(seq 1 30); do
-    [[ "$(redis-cli -p $SCRATCH_PORT ping 2>/dev/null)" == PONG ]] && break
-    sleep 1
-done
-[[ "$(redis-cli -p $SCRATCH_PORT ping)" == PONG ]]
-scratch_pass=$(openssl rand -base64 18)
-as_nodebb ./nodebb setup "$(python3 -c 'import json,sys; print(json.dumps({
-  "url": "http://localhost:4567", "secret": "build-time-only", "database": "redis",
-  "redis:host": "127.0.0.1", "redis:port": int(sys.argv[2]), "redis:password": "", "redis:database": 0,
-  "admin:username": "admin", "admin:password": sys.argv[1], "admin:password:confirm": sys.argv[1],
-  "admin:email": "admin@example.com"}))' "$scratch_pass" "$SCRATCH_PORT")"
-test -d "$NODEBB_DIR/build/public"
-redis-cli -p $SCRATCH_PORT flushall
-redis-cli -p $SCRATCH_PORT shutdown nosave
-rm -f /tmp/redis-scratch.pid /tmp/redis-scratch.log /var/lib/redis/dump.rdb
-rm -f "$NODEBB_DIR/config.json" "$NODEBB_DIR/pidfile"
-rm -rf "$NODEBB_DIR/logs"/* "$NODEBB_DIR/.npm" /root/.npm
-chown -R "$NODEBB_USER:$NODEBB_USER" "$NODEBB_DIR"
+# nodebb-plugin-emoji builds its data in build/emoji of its own directory
+# at the first start of a node (static:app.load, when build/emoji/table.json
+# is missing) and when an admin asks for a new build. It removes the
+# directory and makes it again, so it needs write on build/ of the plugin.
+# With a root-owned tree that was EROFS, and no emoji worked (CT 9385,
+# 2026-11-11). nodebb owns that directory and build/emoji with its files,
+# not build/lib and the other files, and nodebb.service allows it. build/lib
+# holds the code of the plugin: a link of build/ into /var/www/nodebb/build
+# removed that code.
+# begin: emoji
+chown nodebb:nodebb /var/www/nodebb/node_modules/nodebb-plugin-emoji/build
+chown -R nodebb:nodebb /var/www/nodebb/node_modules/nodebb-plugin-emoji/build/emoji
+# end: emoji
 
-# nginx: the NodeBB site replaces the default one
-rm -f /etc/nginx/sites-enabled/*
-ln -s /etc/nginx/sites-available/nodebb /etc/nginx/sites-enabled/nodebb
+# The scratch setup that builds the assets. The layers below removed the
+# snake oil certificate that postgresql.conf names, so the server starts
+# with TLS off, for this step alone.
+PGVER="$(ls /etc/postgresql/)"
+pg_ctlcluster --skip-systemctl-redirect "$PGVER" main start -o "-c ssl=off"
+trap 'pg_ctlcluster --skip-systemctl-redirect "$PGVER" main stop || true' EXIT
+# no trace while the scratch password is in the environment. NodeBB logs in
+# on the socket (peer), so no database password is used. Standard input is
+# not a terminal, so nodebb.py asks nothing.
+set +x
+APP_PASS="$(openssl rand -hex 24)"
+export APP_PASS KEEL_SECRET_NODEBB_SECRET=build-time-only
+/usr/lib/inithooks/bin/nodebb.py --domain=nodebb.invalid --email=admin@nodebb.invalid --admin=admin </dev/null
+unset APP_PASS KEEL_SECRET_NODEBB_SECRET
+set -x
+test -d build/public
+# The active set of this build: serve.py builds again when the set of the
+# database is another
+runuser -u postgres -- psql -X -q -At -d nodebb -c "$(python3 -c 'import sys; sys.path.insert(0, "/usr/lib/keel-nodebb"); import serve; print(serve.ACTIVE_SET)')" \
+    | runuser -u nodebb -- tee build/keel-active-set
+runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -d postgres \
+    -c "DROP DATABASE nodebb" -c "DROP ROLE nodebb"
+rm -f config.json /var/lib/keel-nodebb/ready
+rm -rf logs/* /var/lib/nodebb/.npm /var/lib/nodebb/uploads/*
+pg_ctlcluster --skip-systemctl-redirect "$PGVER" main stop
+trap - EXIT
 
-# systemd: the unit is conditioned on config.json, so it stays inert until
-# the first boot hook has run the setup
-systemctl enable nodebb
+# NodeBB runs on every node: usr/lib/keel-nodebb/serve.py starts it on the
+# node whose PostgreSQL is writable, after the first boot hook.
+systemctl enable nodebb.service
+# NodeBB keeps the old Node.js binary until it restarts, and keel-nodejs-24
+# has no maintainer script (the maintainer, 2026-11-12). This path unit of
+# the layer restarts NodeBB when the binary changes.
+systemctl enable nodebb-nodejs.path
 
-# fab-plan-resolve keeps a package the parent layer already carries at the
-# parent's version, so the two core packages are upgraded here from the
-# build time source (keel, new in the plan, was installed from it already).
-#
-# The overlay of this appliance ships /etc/confconsole/services.txt, which
-# is a conffile of confconsole, so dpkg sees it as locally modified and asks
-# what to do with it. The conf script runs with stdin closed, dpkg reads end
-# of file at the prompt and leaves confconsole "install ok unpacked", which
-# fails this script. Keep the overlay's file without asking.
-#
-# The build time archive has to win over every other source here: a
-# bootstrap from before Keel-Linux/common#30 pins TurnKey's archive at 999.
-# It used to win through the overlay's /etc/apt/preferences.d/keel at 1001,
-# which then shipped in the image and downgraded every package newer than the
-# archive's (tracker#23). This pin names the staging distribution by its
-# Label, exists only during the build and goes with the build time source
-# (conf.d/zz-project-packages).
-printf 'Package: *\nPin: release l=Keel Linux staging\nPin-Priority: 1001\n' \
-    > /etc/apt/preferences.d/keel-staging
-export DEBIAN_FRONTEND=noninteractive
-apt-get install -y --only-upgrade \
-    -o Dpkg::Options::=--force-confdef \
-    -o Dpkg::Options::=--force-confold \
-    inithooks confconsole
-dpkg-query -W -f '${Package} ${Version} ${Status}\n' inithooks confconsole keel
+# The front site of Keel Web must include keel-front.d, so an upload is not
+# stopped at 1 MB behind Anubis (as keel-odoo checks it).
+SNIPPET=/etc/nginx/snippets/keel-web-front.conf
+grep -qxF 'include /etc/nginx/keel-front.d/*.conf;' "$SNIPPET" \
+    || { echo "the front site of keel-web does not include keel-front.d: keel-web 0.4.0 is the least" >&2; exit 1; }
 
-# conf.d/zz-project-packages runs after this script: it checks these three
-# against the archive the build read and then removes the build time source.
-# No version is asserted here, because a literal one passes on a stale index.
+# The stack check of lnpp is not part of the NodeBB product (keel-odoo
+# removes it for the same reason): the hook, the route, the application,
+# the socket, the service unit and its user.
+# A second run finds them gone already.
+if [ -e /usr/lib/systemd/system/keel-lnpp-check.socket ]; then
+    systemctl disable keel-lnpp-check.socket
+fi
+rm -rf /usr/lib/inithooks/firstboot.d/40lnpp-check \
+    /etc/nginx/keel-default.d/50-keel-lnpp.conf \
+    /usr/share/keel-lnpp \
+    /usr/lib/systemd/system/keel-lnpp-check.socket \
+    /usr/lib/systemd/system/keel-lnpp-check.service
+if getent passwd keel-check > /dev/null; then
+    userdel keel-check
+fi
+
+# The appliance manifest, validated and resolved along lnpp, web and core
+keel manifest validate nodebb

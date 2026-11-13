@@ -1,14 +1,17 @@
 #include <turnkey/base>
-#include <turnkey/nodejs-nginx>
 
-/* runtime, all from the Debian archive */
-nodejs                  /* 20.19 in trixie; NodeBB 4.11 declares node >= 20 */
-npm
-redis-server            /* the NodeBB database, bound to ::1 and 127.0.0.1 */
-redis-tools
+/* The parent layer, lnpp, carries Nginx (through Keel Web), PostgreSQL 17,
+   Python 3 and the project packages (inithooks, confconsole, keel).
+   fab-plan-resolve keeps a package that the parent installed at the
+   parent's version, so none of them is named here. Redis is not in the
+   image: NodeBB uses PostgreSQL in every mode (handbook note 0082). */
+
+/* Node.js 24, the Keel package of the official binary (note 0083), from
+   the Keel archive. No layer downloads Node.js itself. The layer names its
+   line: each line is its own package, and the lines conflict, so a change
+   of line is a change of this file and a new commissioning. */
+keel-nodejs-24
+
+/* the build fetches the NodeBB release */
 curl
-
-/* project packages, resolved from the build host's staging repository */
-inithooks
-confconsole
-keel
+ca-certificates

@@ -20,7 +20,9 @@ BT_PASSWORD_LENGTH=24
 BT_RANDOM_BYTES=1024
 # The secrets tests/instance.yaml references, one file each under
 # etc/keel/secrets in the rootfs: the root account and the NodeBB admin.
-BT_SECRETS="root_password app_password"
+# db_password is the secret of lnpp: the account postgres. The role nodebb
+# has no password: NodeBB logs in on the socket (peer)
+BT_SECRETS="root_password db_password app_password"
 # Where the first boot reads the instance description. inithooks reads
 # etc/inithooks.yaml (hook 00declarative), keel reads etc/keel/instance.yaml;
 # the final name is a maintainer decision (brief section 11), so the test
@@ -324,15 +326,12 @@ bt_secret_targets() {
     done
 }
 
-bt_redirects_to_https() {
-    # bt_redirects_to_https CODE LOCATION: what nginx must answer on port
-    # 80 before the forum is reachable. A permanent redirect is accepted
-    # too, so a later change of the appliance's nginx does not fail here
-    # for the wrong reason.
-    case "${1-}" in
-        301|302|307|308) [[ ${2-} == https://* ]] ;;
-        *) return 1 ;;
-    esac
+bt_serves_on_port_80() {
+    # bt_serves_on_port_80 CODE LOCATION: decision 0079. While the
+    # certificate is self-signed, port 80 serves the application as 443
+    # does, with no redirect. The layer on nodejs-nginx redirected; the
+    # layer on lnpp does not.
+    [ "${1-}" = 200 ] && [ -z "${2-}" ]
 }
 
 bt_page_title() {

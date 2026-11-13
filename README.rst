@@ -1,132 +1,121 @@
 NodeBB - Forum for a project
 ============================
 
-`NodeBB`_ is a forum platform built on Node.js: categories, topics with a
-"solved" mode for support questions, discussion for everything that is not a
-question, and ActivityPub for federation. This appliance is the project forum
-of Keel Linux and the first appliance built the Keel way: as content addressed
-layers on top of core, assembled into an LXC system container and first booted
-from a declarative instance spec.
-
-It is **compatible with TurnKey Linux appliances**: the recipe is a fab
-product (``Makefile``, ``plan``, ``conf.d``, ``overlay``, ``changelog``) that
-builds through the ``common`` tree, includes everything in `TurnKey Core`_, and
-follows the conventions of the upstream ``nodejs`` and ``redis`` appliances.
-
-Stack
------
-
-All from the Debian 13 (Trixie) archive except NodeBB itself:
-
-- NodeBB 4.10.3, installed under ``/var/www/nodebb`` from the release
-  tarball, pinned by version and sha256 in ``conf.d/main``. 4.10.3 is the last
-  release whose pinned dependencies run on Node.js 20: 4.11.0 to 4.11.2 still
-  declare ``node >= 20`` but pin ``undici 8.1.0``, which requires Node 22.19,
-  and 4.11.3 and later declare ``node >= 22``. Trixie carries Node.js 20 only.
-- Node.js 20.19 and npm from Debian.
-- Redis 8.0 as the NodeBB database, bound to ``::1`` and ``127.0.0.1``.
-- nginx in front on ``[::]:443`` and ``[::]:80`` (IPv6 first, IPv4 too),
-  proxying to NodeBB on ``[::1]:4567``. The forum, ``forum.keellinux.org``,
-  is served by a public services VM that terminates TLS and reverse proxies
-  to the appliance over IPv6 on port 80: requests from the trusted
-  proxy (``app.options.trusted_proxy``) with ``X-Forwarded-Proto: https`` are
-  proxied, every other request on port 80 is redirected to https, and
-  ``/.well-known/acme-challenge/`` stays served for http-01.
-- A systemd unit, ``nodebb.service``, conditioned on ``config.json`` so it is
-  inert until the first boot has run the setup.
-- Postfix bound to localhost, Webmin, web shell, confconsole: TurnKey Core.
-
-Layers
-------
+`NodeBB`_ is a forum platform built on Node.js. This layer serves it behind
+Nginx on the LNPP stack of Keel (handbook note 0082):
 
 ::
 
-    core  ->  nodejs-nginx  ->  nodebb
+    core  ->  web  ->  lnpp  ->  nodebb
 
-``stacks/nodejs-nginx`` is the stack layer (nginx, Node.js, npm, Redis on
-core); this directory is the appliance delta. Both are built with ``bt-layer``
-from the organization's buildtasks and assembled with ``keel assemble``::
+What the layer adds
+-------------------
 
-    cp -a stacks/nodejs-nginx $FAB_PATH/products/nodejs-nginx
-    cp -a . $FAB_PATH/products/nodebb
-    bt-layer nodejs-nginx --parent core
-    bt-layer nodebb --parent nodejs-nginx
+- NodeBB 4.16.7 in ``/var/www/nodebb``, from the release tarball at a
+  pinned sha256, owned by root. The dependencies come from the reviewed
+  lock file ``usr/share/keel-nodebb/package-lock.json`` with ``npm ci``.
+- Node.js 24 from the Keel package ``keel-nodejs-24`` (note 0083). Each
+  Node.js line is its own package, and the lines conflict. The layer names
+  its line in ``plan/main``.
+- An apt pin (``/etc/apt/preferences.d/keel-nodebb-nodejs``) keeps line
+  24 and refuses the other lines.
+- ``nodebb-nodejs.path`` restarts NodeBB when ``/usr/lib/keel-nodejs/bin/node``
+  changes. The Node.js package has no maintainer script, so without this
+  unit NodeBB keeps the old binary after an upgrade.
+- The session secret is in the one-row table ``keel_nodebb_secret`` of the
+  database, so a pair shares it with the session rows. The first writable
+  boot writes it (``secrets.nodebb_secret`` of the spec, which keel renders
+  as ``KEEL_SECRET_NODEBB_SECRET``, else a new value), and no later boot
+  changes it. ``serve.py`` gives it to NodeBB in the environment.
+- PostgreSQL of lnpp in every mode: embedded in ``simple``, the pair of
+  decision 0054 in the cloud modes. No Redis.
+- ``nodebb.service`` runs ``usr/lib/keel-nodebb/serve.py`` as the user
+  nodebb. It starts NodeBB only while PostgreSQL accepts writes, runs the
+  schema upgrade before a start, and builds the assets again when the
+  active plugins change. On a standby it writes ``/run/keel-nodebb/replica``,
+  and Nginx shows the replica notice.
+- The routes in ``/etc/nginx/keel-default.d/60-keel-nodebb.conf`` and
+  ``keel-front.d``: NodeBB on ``127.0.0.1:4567``, socket.io with the
+  Upgrade headers, a larger body on the upload routes only.
+- The first boot hook ``45nodebb`` and ``bin/nodebb.py``: ``config.json``,
+  the role and database ``nodebb``, and ``./nodebb setup`` with the admin
+  of the spec (``secrets.app_password``, ``app.options.admin_user``). With
+  no ``secrets.app_password``, keel-init asks it on the console (the screen
+  "NodeBB password").
+- NodeBB logs in to PostgreSQL on the socket ``/run/postgresql`` with the
+  peer authentication of the user nodebb. The role ``nodebb`` has no
+  password, and ``config.json`` holds no database password.
+  ``secrets.db_password`` is the password of the account ``postgres``
+  only.
+- NodeBB writes ``build/``, ``logs/``, the pidfile, the emoji data of
+  nodebb-plugin-emoji, and ``/var/lib/nodebb/uploads``, which a pair
+  replicates (``state.replicate`` of ``nodebb.yaml``).
+- The check page of lnpp is removed.
 
-The recipe also builds on its own with ``make`` in a TKLDev, like any TurnKey
-appliance.
+The CPU of a VM
+---------------
 
-The project's own packages (inithooks, confconsole, keel) are listed in the
-plan and resolved, during the build only, from the build host's repository
-copied into the bootstrap as a ``file:///srv/keel-apt/repo`` source
-(``Makefile``, ``bootstrap/post``).
+NodeBB needs a CPU of the x86-64-v2 level. Its image library, sharp, loads
+its binary only on that level, and its WebAssembly build needs SSE4.1 too.
+An LXC uses the CPU of the host. A VM uses the CPU type of its
+configuration: the Proxmox VE web interface gives ``x86-64-v2-AES``, which
+is correct, but ``qm create`` with no ``--cpu`` gives ``kvm64``, which is
+not. On such a CPU the first boot hook ``45nodebb`` stops and says what to
+do:
 
-The build verifies that archive the way an appliance verifies the release one.
-The public half of the staging key is installed into the build tree as
-``/etc/apt/keyrings/keel-staging-keyring.asc``, the source entry names it
-through ``signed-by``, and ``apt-get update`` runs with ``--error-on=any``, so
-a signature that cannot be checked fails the build. It used to say
-``[trusted=yes]``, which switches verification off: apt then printed
-``W: OpenPGP signature verification failed ... Missing key`` and installed the
-packages anyway (tracker#7).
+1. Stop the VM.
+2. Set its CPU type to ``x86-64-v2-AES`` or ``host`` (Hardware, Processors,
+   Type; or ``qm set VMID --cpu x86-64-v2-AES``).
+3. Start the VM and run ``/usr/lib/inithooks/firstboot.d/45nodebb`` as
+   root on its console.
 
-That copy also has to be the archive as it is at build time: fab stamps the
-bootstrap target, so a rebuild would otherwise reuse the copy an earlier build
-made and install packages the archive no longer offers.
-``bin/keel-archive-check`` compares the copied package index with the live one,
-verifies the signature on the copied ``InRelease`` against that keyring,
-refuses any ``trusted=yes`` anywhere in the tree, and does all of it twice:
-where the copy is made, and again on the tree that is about to be configured.
+A change of the Node.js line
+----------------------------
 
-``conf.d/zz-project-packages`` runs last. For each project package it checks
-that the archive offers exactly one version, that apt's candidate is that
-version, that the version comes from the project archive rather than an
-upstream source, and that the installed package is that candidate and
-configured. No version is written down anywhere, so a rebuild made after a
-publication either carries the new versions or fails. It then removes the
-build time source and the build-only pin ``conf.d/main`` gave it (the
-staging Label at 1001, so it wins over TurnKey's 999 pin during the
-upgrade), and fails if any apt file of the image still names that archive.
-The appliance's own Keel source and its pin at 990 come from common
-(``overlays/turnkey.d/keel-apt``); this recipe ships neither.
+Each Node.js line is its own package, and the lines conflict (handbook
+note 0083). ``/etc/apt/preferences.d/keel-nodebb-nodejs`` keeps line 24
+and refuses every other line, so ``apt install keel-nodejs-26`` finds no
+candidate and cannot remove line 24 by surprise. Updates of line 24 come
+with ``apt upgrade`` as usual.
 
-First boot
+The normal change of line is a new image: the plan names the new line,
+the pin follows it, and the image passes commissioning on both sites
+first. To change the line of an installed node on purpose:
+
+1. Make sure that NodeBB of this layer passed commissioning on the new
+   line. A native module of NodeBB is built for the ABI of one line.
+2. Edit ``/etc/apt/preferences.d/keel-nodebb-nodejs``: put the new line,
+   for example ``keel-nodejs-26`` and ``Pin: version 26.*``, in the first
+   record.
+3. Run ``apt install keel-nodejs-26``. apt removes ``keel-nodejs-24``.
+4. ``nodebb-nodejs.path`` restarts NodeBB on the new binary. Check the
+   forum.
+
+To go back, do the same steps with line 24.
+
+Build
+-----
+
+The build needs ``keel-nodejs-24`` in the Keel archive that the build reads:
+
+::
+
+    bt-layer nodebb --parent lnpp
+
+Open items
 ----------
 
-The instance spec (``keel/instance.example.yaml``) is copied to
-``/etc/keel/instance.yaml`` with the two secret files it names under
-``/etc/keel/secrets``. ``keel spec apply`` renders it into the inithooks conf;
-``firstboot.d/40nodebb`` reads ``APP_DOMAIN``, ``APP_EMAIL``, ``APP_PASS``,
-``APP_ADMIN_USER`` and ``APP_TRUSTED_PROXY`` from it, writes the nginx
-trusted proxy file, waits for Redis, runs ``./nodebb setup`` with a
-JSON initial config (no dialog), binds NodeBB to ``[::1]:4567`` behind the
-proxy and starts the service. The hook is idempotent: once ``config.json``
-exists it does nothing. Decisions live in ``lib/nodebb.sh`` and are tested
-with bats (``tests/nodebb.bats``); ``bin/nodebb.py`` holds the only dialog,
-used when a value is absent and a terminal is attached.
-
-Credentials
------------
-
-- Web shell, Webmin, SSH: ``root`` with the spec's ``root_password``.
-- NodeBB admin: ``app.options.admin_user`` (default ``admin``) with the
-  spec's ``app_password``.
+- A login that survives a promote is not tested: no pair test ran. keel
+  has no general path that gives one generated value to both nodes of a
+  pair; this layer keeps its secret in the database instead.
+- Coraza exclusions for posts are not written and not tested.
+- The option ``trusted_proxy`` of the old layer is gone.
+- No nodebb layer is published, so the `appliance` check fails until a
+  layer on lnpp is published after commissioning.
 
 Tests
 -----
 
-- ``tests/nodebb.bats`` and ``tests/coverage.sh``: the first boot library
-  under bats and kcov.
-- ``tests/boot-test.sh nodebb``: verify, pull and assemble the layers, adapt
-  the rootfs for a container, boot it in LXC with a macvlan interface (global
-  IPv6 by SLAAC), first boot from the spec, check nginx and the forum over
-  IPv6 and ``keel diff`` against the spec.
-
-License
--------
-
-GPL-3.0-or-later (decision 0007). The recipe conventions come from
-turnkeylinux-apps/nodejs and turnkeylinux-apps/redis, which declare no
-license; this repository's own files are GPL-3.0-or-later.
+See ``COVERAGE.md`` and ``tests/README.md``.
 
 .. _NodeBB: https://nodebb.org
-.. _TurnKey Core: https://www.turnkeylinux.org/core

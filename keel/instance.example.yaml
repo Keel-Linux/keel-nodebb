@@ -3,9 +3,10 @@
 # A public services VM (2804:710:d0:5::13) terminates TLS for that name and
 # reverse proxies to this appliance over IPv6, so it is the trusted proxy for
 # X-Forwarded-Proto; the NodeBB url is https://forum.keellinux.org.
-# Copy to /etc/keel/instance.yaml in the rootfs and create the two secret
+# Copy to /etc/keel/instance.yaml in the rootfs and create the three secret
 # files (mode 0600, owned by root) before the first boot:
 #   /etc/keel/secrets/root_password
+#   /etc/keel/secrets/db_password       the PostgreSQL account postgres
 #   /etc/keel/secrets/app_password      the NodeBB admin password
 version: 1
 
@@ -36,6 +37,8 @@ tls:
 secrets:
   root_password:
     file: /etc/keel/secrets/root_password
+  db_password:
+    file: /etc/keel/secrets/db_password
   app_password:
     file: /etc/keel/secrets/app_password
 
@@ -44,7 +47,9 @@ app:
   domain: forum.keellinux.org
   options:
     admin_user: admin
-    trusted_proxy: "2804:710:d0:5::13"
+# The layer on lnpp (handbook note 0082) has no option trusted_proxy: the
+# routes are keel-web's. How keel-web trusts the public proxy for
+# X-Forwarded-Proto is an open item of the note.
 
 security:
   alerts: skip
